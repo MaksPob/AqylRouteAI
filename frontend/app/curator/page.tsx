@@ -72,12 +72,20 @@ export default function CuratorDashboard() {
     <main className="min-h-screen pb-16">
       <Header lang={lang} setLang={setLang} title={t("dashboard", lang)}
               subtitle={`${cases.length} ${cases.length === 1 ? "кейс" : "кейсов"}`}
-              right={notes.length > 0 ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.8rem] font-semibold"
-                      style={{ background: "var(--st-overdue-bg)", color: "var(--st-overdue)" }}>
-                  <Icon.bell size={14} /> {notes.length}
-                </span>
-              ) : undefined} />
+              right={
+                <>
+                  <button className="btn btn-quiet !px-2.5" title="Справочник организаций"
+                          onClick={() => router.push("/curator/facilities")}>
+                    <Icon.pin size={18} />
+                  </button>
+                  {notes.length > 0 && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.8rem] font-semibold"
+                          style={{ background: "var(--st-overdue-bg)", color: "var(--st-overdue)" }}>
+                      <Icon.bell size={14} /> {notes.length}
+                    </span>
+                  )}
+                </>
+              } />
 
       <div className="mx-auto max-w-6xl px-4 pt-5 sm:px-6 sm:pt-7">
         {/* сводка */}

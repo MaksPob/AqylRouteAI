@@ -258,7 +258,14 @@ def _hydrate(case: dict) -> dict:
         s = catalog.by_id(it["service_id"]) or {}
         it["stage"] = s.get("stage", "")
         it["authority"] = s.get("authority", "")
-        it["facilities"] = catalog.facility_for(case["region"], it["service_id"])
+        # Организации берём из справочника куратора: он ведёт актуальные
+        # адреса и телефоны, которые различаются по районам.
+        it["facilities"] = [
+            {"name": f["name"], "district": f["district"], "address": f["address"],
+             "phone": f["phone"], "contact_person": f["contact_person"],
+             "portal": f["portal"], "hours": f["hours"], "note": f["note"]}
+            for f in db.list_facilities(case["region"], it["service_id"])
+        ]
         it["portal"] = s.get("portal", "")
     case = dict(case)
     case["items"] = items
@@ -404,6 +411,83 @@ def verify_status(case_id: str, item_code: str, u: Annotated[dict, Depends(curat
     db.update_item(case_id, item_code, confirmed_by_curator=1, parent_reported_status=None)
     db.add_event(case_id, "status_verified", u["display_name"], f"Куратор подтвердил статус шага {item_code}", item_code)
     return _hydrate(db.get_case(case_id))
+
+
+# ─────────────────── справочник организаций ───────────────────
+
+class FacilityIn(BaseModel):
+    name: str
+    service_id: str
+    region: str
+    district: str = ""
+    address: str = ""
+    phone: str = ""
+    contact_person: str = ""
+    email: str = ""
+    portal: str = ""
+    hours: str = ""
+    note: str = ""
+    is_active: bool = True
+
+
+class FacilityPatch(BaseModel):
+    name: str | None = None
+    service_id: str | None = None
+    region: str | None = None
+    district: str | None = None
+    address: str | None = None
+    phone: str | None = None
+    contact_person: str | None = None
+    email: str | None = None
+    portal: str | None = None
+    hours: str | None = None
+    note: str | None = None
+    is_active: bool | None = None
+
+
+def _validate_facility(name: str, service_id: str, region: str) -> None:
+    if not name.strip():
+        raise HTTPException(400, "Укажите название организации")
+    if region not in ("ASTANA", "KARAGANDA", "ALMATY"):
+        raise HTTPException(400, "Выберите регион из списка")
+    if not catalog.by_id(service_id):
+        raise HTTPException(400, "Такой услуги нет в справочнике")
+
+
+@app.get("/api/facilities")
+def facilities(region: str | None = None, service_id: str | None = None,
+               include_inactive: bool = False, u: dict = Depends(current_user)):
+    """Родитель видит только действующие организации, куратор — все."""
+    only_active = not (include_inactive and u["role"] == "curator")
+    return db.list_facilities(region, service_id, only_active=only_active)
+
+
+@app.post("/api/facilities")
+def create_facility(body: FacilityIn, u: Annotated[dict, Depends(curator_only)]):
+    _validate_facility(body.name, body.service_id, body.region)
+    fid = db.add_facility(body.model_dump(), created_by=u["display_name"])
+    return db.get_facility(fid)
+
+
+@app.patch("/api/facilities/{fid}")
+def patch_facility(fid: int, body: FacilityPatch, u: Annotated[dict, Depends(curator_only)]):
+    cur = db.get_facility(fid)
+    if not cur:
+        raise HTTPException(404, "Организация не найдена")
+    data = {k: v for k, v in body.model_dump().items() if v is not None}
+    _validate_facility(data.get("name", cur["name"]),
+                       data.get("service_id", cur["service_id"]),
+                       data.get("region", cur["region"]))
+    db.update_facility(fid, data)
+    return db.get_facility(fid)
+
+
+@app.post("/api/facilities/{fid}/delete")
+def remove_facility(fid: int, u: Annotated[dict, Depends(curator_only)]):
+    if not db.get_facility(fid):
+        raise HTTPException(404, "Организация не найдена")
+    db.delete_facility(fid)
+    return {"ok": True}
 
 
 # ───────────────────────────── документы ─────────────────────────────

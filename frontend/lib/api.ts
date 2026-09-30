@@ -51,7 +51,8 @@ export interface Item {
   stage: string;
   authority: string;
   portal?: string;
-  facilities: { name: string; portal?: string; note?: string }[];
+  facilities: { name: string; district?: string; address?: string; phone?: string;
+                contact_person?: string; portal?: string; hours?: string; note?: string }[];
 }
 
 export interface Stats {
@@ -87,6 +88,13 @@ export interface DocRow {
 }
 
 export interface PhqPoint { score: number; severity: string; crisis_flag: number; created_at: string }
+
+export interface Facility {
+  id: number; name: string; service_id: string; region: string; district: string;
+  address: string; phone: string; contact_person: string; email: string;
+  portal: string; hours: string; note: string; is_active: boolean;
+  created_by: string; created_at: string; updated_at: string | null;
+}
 
 export interface Notification {
   case_id: string; item_code: string | null; title: string;
@@ -152,6 +160,22 @@ export const api = {
   confirm: (caseId: string) => call<CaseDetail>(`/api/cases/${caseId}/confirm`, { method: "POST" }),
 
   notifications: () => call<Notification[]>("/api/notifications"),
+
+  facilities: (p: { region?: string; service_id?: string; include_inactive?: boolean } = {}) => {
+    const q = new URLSearchParams();
+    if (p.region) q.set("region", p.region);
+    if (p.service_id) q.set("service_id", p.service_id);
+    if (p.include_inactive) q.set("include_inactive", "true");
+    const qs = q.toString();
+    return call<Facility[]>(`/api/facilities${qs ? `?${qs}` : ""}`);
+  },
+  createFacility: (body: Partial<Facility>) =>
+    call<Facility>("/api/facilities", { method: "POST", body: JSON.stringify(body) }),
+  updateFacility: (id: number, body: Partial<Facility>) =>
+    call<Facility>(`/api/facilities/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteFacility: (id: number) =>
+    call<{ ok: boolean }>(`/api/facilities/${id}/delete`, { method: "POST" }),
+  catalog: () => call<{ services: { id: string; stage: string; title: Record<string, string> }[] }>("/api/catalog"),
 
   docTypes: () => call<{ value: string; label: string }[]>("/api/document-types"),
   documents: (caseId: string) => call<DocRow[]>(`/api/cases/${caseId}/documents`),

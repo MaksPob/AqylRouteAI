@@ -111,15 +111,35 @@ function StepCard({ item, lang, onStatus, busy }: {
                   <div className="mb-2 text-[0.82rem] font-semibold" style={{ color: "var(--ink-muted)" }}>
                     {t("whereToGo", lang)}
                   </div>
-                  <ul className="grid gap-1.5">
+                  <ul className="grid gap-3">
                     {item.facilities.map((f) => (
-                      <li key={f.name} className="flex items-start gap-2">
-                        <span className="mt-[3px] shrink-0" style={{ color: "var(--brand)" }}><Icon.pin size={14} /></span>
-                        <span>
-                          {f.name}
-                          {f.portal && <span className="ml-1.5" style={{ color: "var(--brand)" }}>{f.portal}</span>}
-                          {f.note && <span className="ml-1.5 text-[0.8rem]" style={{ color: "var(--ink-muted)" }}>— {f.note}</span>}
-                        </span>
+                      <li key={f.name} className="rounded-[var(--radius-s)] border px-3.5 py-3"
+                          style={{ borderColor: "var(--border)" }}>
+                        <div className="mb-1 flex items-start gap-2">
+                          <span className="mt-[3px] shrink-0" style={{ color: "var(--brand)" }}><Icon.pin size={14} /></span>
+                          <span className="font-medium">
+                            {f.name}
+                            {f.district && (
+                              <span className="ml-2 text-[0.8rem] font-normal" style={{ color: "var(--ink-muted)" }}>
+                                {f.district}
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        <div className="grid gap-0.5 pl-6 text-[0.85rem]" style={{ color: "var(--ink-2)" }}>
+                          {f.address && <span>{f.address}</span>}
+                          {f.phone && (
+                            <a href={`tel:${f.phone.replace(/[^+\d]/g, "")}`} className="font-medium"
+                               style={{ color: "var(--brand)" }}>{f.phone}</a>
+                          )}
+                          {f.contact_person && <span>{f.contact_person}</span>}
+                          {f.hours && <span style={{ color: "var(--ink-muted)" }}>{f.hours}</span>}
+                          {f.portal && (
+                            <a href={f.portal.startsWith("http") ? f.portal : `https://${f.portal}`}
+                               target="_blank" rel="noreferrer" style={{ color: "var(--brand)" }}>{f.portal}</a>
+                          )}
+                          {f.note && <span style={{ color: "var(--ink-muted)" }}>{f.note}</span>}
+                        </div>
                       </li>
                     ))}
                   </ul>

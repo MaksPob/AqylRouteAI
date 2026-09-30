@@ -120,6 +120,26 @@ CREATE TABLE IF NOT EXISTS phq9_history (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS facilities (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  service_id TEXT NOT NULL,
+  region TEXT NOT NULL,
+  district TEXT DEFAULT '',
+  address TEXT DEFAULT '',
+  phone TEXT DEFAULT '',
+  contact_person TEXT DEFAULT '',
+  email TEXT DEFAULT '',
+  portal TEXT DEFAULT '',
+  hours TEXT DEFAULT '',
+  note TEXT DEFAULT '',
+  is_active INTEGER DEFAULT 1,
+  created_by TEXT DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_fac_region ON facilities(region, service_id);
 CREATE INDEX IF NOT EXISTS idx_docs_case ON documents(case_id);
 CREATE INDEX IF NOT EXISTS idx_phq_case ON phq9_history(case_id);
 CREATE INDEX IF NOT EXISTS idx_items_case ON plan_items(case_id);
@@ -368,6 +388,71 @@ def get_document(doc_id: int) -> dict | None:
 def delete_document(doc_id: int) -> None:
     with conn() as c:
         c.execute("DELETE FROM documents WHERE id=?", (doc_id,))
+
+
+# ─────────────────── справочник организаций ───────────────────
+# Ведётся куратором: ПМПК, МСЭК и центры различаются по районам,
+# и держать их в коде нельзя — адреса и телефоны меняются.
+
+FACILITY_FIELDS = ("name", "service_id", "region", "district", "address", "phone",
+                   "contact_person", "email", "portal", "hours", "note", "is_active")
+
+
+def add_facility(data: dict, created_by: str = "") -> int:
+    vals = {k: data.get(k, "") for k in FACILITY_FIELDS}
+    vals["is_active"] = int(data.get("is_active", 1))
+    with conn() as c:
+        cur = c.execute(
+            f"INSERT INTO facilities({','.join(FACILITY_FIELDS)},created_by,created_at) "
+            f"VALUES({','.join('?' * len(FACILITY_FIELDS))},?,?)",
+            (*[vals[k] for k in FACILITY_FIELDS], created_by, datetime.now().isoformat()),
+        )
+        return cur.lastrowid
+
+
+def list_facilities(region: str | None = None, service_id: str | None = None,
+                    only_active: bool = True) -> list[dict]:
+    q = "SELECT * FROM facilities"
+    where, args = [], []
+    if region:
+        where.append("region=?")
+        args.append(region)
+    if service_id:
+        where.append("service_id=?")
+        args.append(service_id)
+    if only_active:
+        where.append("is_active=1")
+    if where:
+        q += " WHERE " + " AND ".join(where)
+    q += " ORDER BY region, service_id, district, name"
+    with conn() as c:
+        rows = [dict(r) for r in c.execute(q, tuple(args))]
+    for r in rows:
+        r["is_active"] = bool(r["is_active"])
+    return rows
+
+
+def get_facility(fid: int) -> dict | None:
+    with conn() as c:
+        r = c.execute("SELECT * FROM facilities WHERE id=?", (fid,)).fetchone()
+        return dict(r) if r else None
+
+
+def update_facility(fid: int, data: dict) -> None:
+    fields = {k: v for k, v in data.items() if k in FACILITY_FIELDS and v is not None}
+    if "is_active" in fields:
+        fields["is_active"] = int(bool(fields["is_active"]))
+    if not fields:
+        return
+    fields["updated_at"] = datetime.now().isoformat()
+    sets = ",".join(f"{k}=?" for k in fields)
+    with conn() as c:
+        c.execute(f"UPDATE facilities SET {sets} WHERE id=?", (*fields.values(), fid))
+
+
+def delete_facility(fid: int) -> None:
+    with conn() as c:
+        c.execute("DELETE FROM facilities WHERE id=?", (fid,))
 
 
 # ───────────────── история психологического состояния ─────────────────

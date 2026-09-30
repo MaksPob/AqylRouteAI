@@ -67,7 +67,34 @@ def _build(owner_id: int, answers: list[tuple[str, str, str]], child_name: str) 
     return cid
 
 
+def seed_facilities() -> None:
+    """
+    Переносит площадки из статического справочника в редактируемую базу.
+    Дальше их ведёт куратор: адреса и телефоны меняются, а ПМПК и МСЭК
+    различаются по районам — держать это в коде нельзя.
+    """
+    if db.list_facilities(only_active=False):
+        return
+
+    regions = catalog.catalog()["regions"]
+    n = 0
+    for region, cfg in regions.items():
+        for service_id, places in (cfg.get("facilities") or {}).items():
+            for place in places:
+                db.add_facility({
+                    "name": place["name"],
+                    "service_id": service_id,
+                    "region": region,
+                    "portal": place.get("portal", ""),
+                    "note": place.get("note", ""),
+                }, created_by="Справочник")
+                n += 1
+    if n:
+        print(f"[seed] организаций перенесено в справочник: {n}")
+
+
 def ensure_seed() -> None:
+    seed_facilities()
     if db.list_cases():
         return
 
