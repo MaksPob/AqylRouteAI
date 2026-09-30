@@ -69,6 +69,8 @@ export interface CaseSummary {
 export interface CaseDetail extends CaseSummary {
   summary: string; parent_support_note: string; engine: string;
   items: Item[]; events: EventRow[]; state: Record<string, unknown> | null;
+  documents: DocRow[]; phq9_history: PhqPoint[];
+  needs_clarification: { service_id: string; title: string; reason: string }[];
   pending_notice?: string;
 }
 
@@ -76,6 +78,14 @@ export interface EventRow {
   id: number; case_id: string; item_code: string | null;
   kind: string; actor: string; message: string; created_at: string;
 }
+
+export interface DocRow {
+  id: number; case_id: string; item_code: string | null; doc_type: string;
+  original_name: string; mime: string; size: number; uploaded_by: string;
+  note: string; created_at: string;
+}
+
+export interface PhqPoint { score: number; severity: string; crisis_flag: number; created_at: string }
 
 export interface Notification {
   case_id: string; item_code: string | null; title: string;
@@ -141,6 +151,31 @@ export const api = {
   confirm: (caseId: string) => call<CaseDetail>(`/api/cases/${caseId}/confirm`, { method: "POST" }),
 
   notifications: () => call<Notification[]>("/api/notifications"),
+
+  docTypes: () => call<{ value: string; label: string }[]>("/api/document-types"),
+  documents: (caseId: string) => call<DocRow[]>(`/api/cases/${caseId}/documents`),
+  deleteDocument: (id: number) => call<{ ok: boolean }>(`/api/documents/${id}/delete`, { method: "POST" }),
+  fileUrl: (id: number) => `${API}/api/documents/${id}/file`,
+
+  uploadDocument: async (caseId: string, file: File, docType: string, itemCode = "", note = "") => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("doc_type", docType);
+    if (itemCode) fd.append("item_code", itemCode);
+    if (note) fd.append("note", note);
+    const t = token.get();
+    const res = await fetch(`${API}/api/cases/${caseId}/documents`, {
+      method: "POST",
+      headers: t ? { Authorization: `Bearer ${t}` } : {},   // Content-Type ставит сам браузер вместе с boundary
+      body: fd,
+    });
+    if (!res.ok) {
+      let detail = `Ошибка ${res.status}`;
+      try { detail = (await res.json()).detail ?? detail; } catch { /* не JSON */ }
+      throw new Error(detail);
+    }
+    return res.json() as Promise<DocRow>;
+  },
 
   phq9form: (lang: string) =>
     call<{ preamble: string; questions: { id: number; text: string; critical: boolean }[]; options: { value: number; label: string }[]; disclaimer: string }>(`/api/phq9?lang=${lang}`),

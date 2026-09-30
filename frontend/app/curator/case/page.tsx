@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { api, type CaseDetail, type Item, type Status, token } from "@/lib/api";
 import { BLOCKER_NAMES, formatDate, localName, REGION_NAMES, ROLE_NAMES, STAGE_NAMES, t } from "@/lib/i18n";
 import { Banner, Header, Icon, PriorityMark, Spinner, StatusBadge, useLang } from "@/components/ui";
+import { Documents } from "@/components/documents";
+import { WellbeingTrack } from "@/components/wellbeing";
 
 const STATUSES: Status[] = ["TODO", "IN_PROGRESS", "WAITING", "DONE", "BLOCKED"];
 const BLOCKERS = ["MISSING_DOCUMENT", "WAITING_FOR_ORGANIZATION", "NO_APPOINTMENT", "PARENT_UNAVAILABLE", "SERVICE_UNAVAILABLE", "UNKNOWN"];
@@ -209,6 +211,27 @@ function CaseInner() {
           </section>
         )}
 
+        {d.needs_clarification?.length > 0 && (
+          <section className="card mb-6 p-5" style={{ borderColor: "var(--st-todo)" }}>
+            <h3 className="mb-1 inline-flex items-center gap-2" style={{ color: "var(--st-todo)" }}>
+              <Icon.alert size={17} /> Нужно уточнить у родителя
+            </h3>
+            <p className="mb-3 text-[0.86rem]" style={{ color: "var(--ink-2)" }}>
+              Эти услуги не включены в план: интервью не дало данных о них.
+              Уточните у семьи и при необходимости добавьте шаг вручную.
+            </p>
+            <ul className="grid gap-2">
+              {d.needs_clarification.map((c) => (
+                <li key={c.service_id} className="rounded-[var(--radius-s)] px-3 py-2.5 text-[0.88rem]"
+                    style={{ background: "var(--st-todo-bg)" }}>
+                  <span className="font-semibold">{c.title}</span>
+                  <span className="ml-2" style={{ color: "var(--ink-2)" }}>— {c.reason}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         <div className="grid gap-6 lg:grid-cols-[1.6fr_1fr]">
           <section>
             {d.summary && (
@@ -231,19 +254,15 @@ function CaseInner() {
           </section>
 
           <aside className="grid content-start gap-5">
-            {d.phq9_score !== null && (
+            <section className="card p-5">
+              <h3 className="mb-3 inline-flex items-center gap-2"><Icon.doc size={17} /> Документы семьи</h3>
+              <Documents caseId={caseId} lang={lang} canUpload={false} compact />
+            </section>
+
+            {d.phq9_history?.length > 0 && (
               <section className="card p-5">
-                <h3 className="mb-2 inline-flex items-center gap-2"><Icon.heart size={17} /> Состояние родителя</h3>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-[1.6rem] font-bold leading-none"
-                        style={{ color: d.phq9_score >= 15 ? "var(--st-overdue)" : d.phq9_score >= 10 ? "var(--st-blocked)" : "var(--st-done)" }}>
-                    {d.phq9_score}
-                  </span>
-                  <span className="text-[0.85rem]" style={{ color: "var(--ink-muted)" }}>из 27 · PHQ-9</span>
-                </div>
-                <p className="mt-2 text-[0.8rem]" style={{ color: "var(--ink-muted)" }}>
-                  Скрининг, не диагноз. Интерпретирует специалист.
-                </p>
+                <h3 className="mb-3 inline-flex items-center gap-2"><Icon.heart size={17} /> Состояние родителя</h3>
+                <WellbeingTrack history={d.phq9_history} compact />
               </section>
             )}
 

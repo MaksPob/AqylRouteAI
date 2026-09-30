@@ -34,3 +34,6 @@ logs/
 
 # Claude Code
 .claude/settings.local.json
+
+# Загруженные документы
+backend/uploads/

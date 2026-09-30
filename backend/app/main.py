@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 from datetime import date, datetime
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from . import ai, catalog, db, deadline, phq9
@@ -33,6 +35,11 @@ app.add_middleware(
 @app.on_event("startup")
 def _startup() -> None:
     db.init()
+    # мягкая миграция: колонка добавлена позже схемы
+    with db.conn() as c:
+        cols = {r["name"] for r in c.execute("PRAGMA table_info(cases)")}
+        if "needs_clarification" not in cols:
+            c.execute("ALTER TABLE cases ADD COLUMN needs_clarification TEXT DEFAULT '[]'")
     from .seed import ensure_seed
     ensure_seed()
     n = db.purge_abandoned()
@@ -216,9 +223,19 @@ def build_plan(case_id: str, lang: str = "ru", u: dict = Depends(current_user)):
     )
     db.add_event(case_id, "plan_generated", "AI",
                  f"Сформирован план из {len(plan.items)} шагов, ожидает проверки куратора")
+
+    # Чего интервью не выяснило — куратор уточняет при проверке. Это честнее,
+    # чем ставить шаг наугад: план не должен содержать того, о чём не спрашивали.
+    clarify = [r for r in rejected if "не спрашивали" in r]
+    db.update_case(case_id, needs_clarification=json.dumps(
+        [{"service_id": r.split(":")[0],
+          "title": (catalog.by_id(r.split(":")[0]) or {}).get("title", {}).get("ru", r.split(":")[0]),
+          "reason": r.split(": ", 1)[1] if ": " in r else r}
+         for r in clarify], ensure_ascii=False))
+
     if rejected:
         db.add_event(case_id, "items_rejected", "Система",
-                     "Отклонены шаги вне справочника: " + "; ".join(rejected))
+                     "Не включено в план: " + "; ".join(rejected))
 
     return {"case_id": case_id, "engine": f"{eng_state}/{eng_plan}",
             "rejected": rejected, "plan": plan.model_dump(), "state": state.model_dump()}
@@ -229,6 +246,10 @@ def build_plan(case_id: str, lang: str = "ru", u: dict = Depends(current_user)):
 def _hydrate(case: dict) -> dict:
     """Собирает кейс целиком и пересчитывает просрочку на момент чтения."""
     items = [deadline.apply(i) for i in db.get_items(case["case_id"])]
+    # Статусы OVERDUE и BLOCKED вычисляются здесь, а не хранятся, поэтому
+    # пересортировываем после пересчёта: сначала горящее, потом порядок маршрута.
+    rank = {"OVERDUE": 0, "BLOCKED": 1, "DONE": 3, "CANCELLED": 4}
+    items.sort(key=lambda i: (rank.get(i["status"], 2), i["item_code"]))
     for it in items:
         s = catalog.by_id(it["service_id"]) or {}
         it["stage"] = s.get("stage", "")
@@ -240,6 +261,10 @@ def _hydrate(case: dict) -> dict:
     case["stats"] = deadline.case_summary(items)
     case["state"] = json.loads(case["state_json"]) if case.get("state_json") else None
     case.pop("state_json", None)
+    try:
+        case["needs_clarification"] = json.loads(case.get("needs_clarification") or "[]")
+    except (TypeError, ValueError):
+        case["needs_clarification"] = []
     return case
 
 
@@ -270,6 +295,8 @@ def case_detail(case_id: str, u: Annotated[dict, Depends(current_user)]):
         h["items"] = []
         h["pending_notice"] = "Ваш план сформирован и сейчас проверяется куратором. Обычно это занимает немного времени."
     h["events"] = db.get_events(case_id, limit=50)
+    h["documents"] = [{k: v for k, v in d.items() if k != "stored_name"} for d in db.get_documents(case_id)]
+    h["phq9_history"] = db.get_phq9_history(case_id)
     return h
 
 
@@ -371,6 +398,119 @@ def verify_status(case_id: str, item_code: str, u: Annotated[dict, Depends(curat
     return _hydrate(db.get_case(case_id))
 
 
+# ───────────────────────────── документы ─────────────────────────────
+
+UPLOADS = Path(__file__).resolve().parent.parent / "uploads"
+MAX_UPLOAD = 10 * 1024 * 1024          # 10 МБ
+
+# Разрешаем только то, чем реально бывают справки. Исполняемое и архивы
+# не принимаем: файл потом открывает куратор, и это чужое устройство.
+ALLOWED_MIME = {
+    "application/pdf": ".pdf",
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/heic": ".heic",
+    "image/webp": ".webp",
+}
+
+DOC_TYPES = [
+    {"value": "FORM_031", "label": "Форма №031/у (заключение ВКК)"},
+    {"value": "DOCTOR", "label": "Заключение врача-психиатра"},
+    {"value": "PMPC", "label": "Заключение ПМПК"},
+    {"value": "DISABILITY", "label": "Справка об инвалидности"},
+    {"value": "IPAR", "label": "ИПАР"},
+    {"value": "REHAB", "label": "Документы о реабилитации"},
+    {"value": "SCHOOL", "label": "Документы из детского сада или школы"},
+    {"value": "OTHER", "label": "Другое"},
+]
+
+
+def _own_case_or_403(case_id: str, u: dict) -> dict:
+    c = db.get_case(case_id)
+    if not c:
+        raise HTTPException(404, "Кейс не найден")
+    if u["role"] == "parent" and c["owner_id"] != u["id"]:
+        raise HTTPException(403, "Это не ваш кейс")
+    return c
+
+
+@app.get("/api/document-types")
+def document_types():
+    return DOC_TYPES
+
+
+@app.get("/api/cases/{case_id}/documents")
+def list_documents(case_id: str, u: Annotated[dict, Depends(current_user)]):
+    _own_case_or_403(case_id, u)
+    return [{k: v for k, v in d.items() if k != "stored_name"} for d in db.get_documents(case_id)]
+
+
+@app.post("/api/cases/{case_id}/documents")
+async def upload_document(
+    case_id: str,
+    file: Annotated[UploadFile, File()],
+    doc_type: Annotated[str, Form()] = "OTHER",
+    item_code: Annotated[str, Form()] = "",
+    note: Annotated[str, Form()] = "",
+    u: dict = Depends(current_user),
+):
+    _own_case_or_403(case_id, u)
+
+    if file.content_type not in ALLOWED_MIME:
+        raise HTTPException(400, "Можно загрузить PDF или фотографию документа (JPG, PNG, HEIC, WEBP)")
+
+    data = await file.read()
+    if len(data) > MAX_UPLOAD:
+        raise HTTPException(413, "Файл больше 10 МБ. Сфотографируйте документ с меньшим разрешением")
+    if not data:
+        raise HTTPException(400, "Файл пустой")
+
+    folder = UPLOADS / case_id
+    folder.mkdir(parents=True, exist_ok=True)
+    stored = f"{datetime.now():%Y%m%d%H%M%S}-{secrets.token_hex(6)}{ALLOWED_MIME[file.content_type]}"
+    (folder / stored).write_bytes(data)
+
+    doc_id = db.add_document(
+        case_id, doc_type, file.filename or "документ", stored,
+        file.content_type, len(data), u["display_name"],
+        item_code or None, note,
+    )
+    label = next((d["label"] for d in DOC_TYPES if d["value"] == doc_type), doc_type)
+    db.add_event(case_id, "document_uploaded", u["display_name"],
+                 f"Загружен документ: {label}", item_code or None)
+
+    return {"id": doc_id, "doc_type": doc_type, "original_name": file.filename,
+            "size": len(data), "mime": file.content_type}
+
+
+@app.get("/api/documents/{doc_id}/file")
+def download_document(doc_id: int, u: Annotated[dict, Depends(current_user)]):
+    d = db.get_document(doc_id)
+    if not d:
+        raise HTTPException(404, "Документ не найден")
+    _own_case_or_403(d["case_id"], u)
+
+    path = UPLOADS / d["case_id"] / d["stored_name"]
+    if not path.exists():
+        raise HTTPException(410, "Файл больше не доступен")
+    return FileResponse(path, media_type=d["mime"], filename=d["original_name"])
+
+
+@app.post("/api/documents/{doc_id}/delete")
+def remove_document(doc_id: int, u: Annotated[dict, Depends(current_user)]):
+    d = db.get_document(doc_id)
+    if not d:
+        raise HTTPException(404, "Документ не найден")
+    _own_case_or_403(d["case_id"], u)
+
+    path = UPLOADS / d["case_id"] / d["stored_name"]
+    path.unlink(missing_ok=True)
+    db.delete_document(doc_id)
+    db.add_event(d["case_id"], "document_deleted", u["display_name"],
+                 f"Удалён документ: {d['original_name']}")
+    return {"ok": True}
+
+
 # ───────────────────────── PHQ-9 и поддержка ─────────────────────────
 
 @app.get("/api/phq9")
@@ -393,6 +533,7 @@ def phq9_submit(body: Phq9In, u: Annotated[dict, Depends(current_user)]):
         raise HTTPException(400, "Нужно ответить на все 9 вопросов")
     r = phq9.score(body.answers)
     db.update_case(body.case_id, phq9_score=r["score"], phq9_severity=r["severity"])
+    db.add_phq9(body.case_id, r["score"], r["severity"], r["crisis_flag"])
     db.add_event(body.case_id, "phq9_completed", u["display_name"],
                  f"Пройден скрининг PHQ-9: {r['score']} из 27 ({r['severity']})")
     if r["crisis_flag"]:

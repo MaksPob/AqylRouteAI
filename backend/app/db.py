@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS cases (
   state_json TEXT,
   engine TEXT DEFAULT '',
   phq9_score INTEGER,
+  needs_clarification TEXT DEFAULT '[]',
   phq9_severity TEXT DEFAULT '',
   created_at TEXT NOT NULL,
   confirmed_at TEXT
@@ -96,6 +97,31 @@ CREATE TABLE IF NOT EXISTS events (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS documents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  case_id TEXT NOT NULL REFERENCES cases(case_id),
+  item_code TEXT,
+  doc_type TEXT NOT NULL,
+  original_name TEXT NOT NULL,
+  stored_name TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  uploaded_by TEXT NOT NULL,
+  note TEXT DEFAULT '',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS phq9_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  case_id TEXT NOT NULL REFERENCES cases(case_id),
+  score INTEGER NOT NULL,
+  severity TEXT NOT NULL,
+  crisis_flag INTEGER DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_docs_case ON documents(case_id);
+CREATE INDEX IF NOT EXISTS idx_phq_case ON phq9_history(case_id);
 CREATE INDEX IF NOT EXISTS idx_items_case ON plan_items(case_id);
 CREATE INDEX IF NOT EXISTS idx_events_case ON events(case_id);
 """
@@ -275,9 +301,15 @@ def save_plan(case_id: str, items: list, base: date | None = None) -> None:
 
 def get_items(case_id: str) -> list[dict]:
     with conn() as c:
+        # Порядок шагов: сначала то, что горит, затем логическая
+        # последовательность маршрута (item_code проставлен по зависимостям).
+        # Сортировать только по приоритету нельзя — тогда ВКК оказывается
+        # выше консультации психиатра, без которой её не получить.
         rows = [dict(r) for r in c.execute(
             "SELECT * FROM plan_items WHERE case_id=? ORDER BY "
-            "CASE priority WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 ELSE 3 END, due_date", (case_id,))]
+            "  CASE status WHEN 'OVERDUE' THEN 0 WHEN 'BLOCKED' THEN 1 "
+            "              WHEN 'DONE' THEN 3 WHEN 'CANCELLED' THEN 4 ELSE 2 END, "
+            "  item_code", (case_id,))]
     for r in rows:
         r["documents"] = json.loads(r.pop("documents_json") or "[]")
         r["depends_on"] = json.loads(r.pop("depends_on_json") or "[]")
@@ -305,6 +337,53 @@ def confirm_all_items(case_id: str) -> None:
 
 
 # ───────────────────────── события и уведомления ─────────────────────
+
+# ──────────────────────────── документы ────────────────────────────
+
+def add_document(case_id: str, doc_type: str, original_name: str, stored_name: str,
+                 mime: str, size: int, uploaded_by: str,
+                 item_code: str | None = None, note: str = "") -> int:
+    with conn() as c:
+        cur = c.execute(
+            "INSERT INTO documents(case_id,item_code,doc_type,original_name,stored_name,mime,size,"
+            "uploaded_by,note,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (case_id, item_code, doc_type, original_name, stored_name, mime, size,
+             uploaded_by, note, datetime.now().isoformat()),
+        )
+        return cur.lastrowid
+
+
+def get_documents(case_id: str) -> list[dict]:
+    with conn() as c:
+        return [dict(r) for r in c.execute(
+            "SELECT * FROM documents WHERE case_id=? ORDER BY id DESC", (case_id,))]
+
+
+def get_document(doc_id: int) -> dict | None:
+    with conn() as c:
+        r = c.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
+        return dict(r) if r else None
+
+
+def delete_document(doc_id: int) -> None:
+    with conn() as c:
+        c.execute("DELETE FROM documents WHERE id=?", (doc_id,))
+
+
+# ───────────────── история психологического состояния ─────────────────
+
+def add_phq9(case_id: str, score: int, severity: str, crisis: bool) -> None:
+    with conn() as c:
+        c.execute("INSERT INTO phq9_history(case_id,score,severity,crisis_flag,created_at) VALUES(?,?,?,?,?)",
+                  (case_id, score, severity, int(crisis), datetime.now().isoformat()))
+
+
+def get_phq9_history(case_id: str) -> list[dict]:
+    with conn() as c:
+        return [dict(r) for r in c.execute(
+            "SELECT score,severity,crisis_flag,created_at FROM phq9_history "
+            "WHERE case_id=? ORDER BY id", (case_id,))]
+
 
 def add_event(case_id: str, kind: str, actor: str, message: str, item_code: str | None = None) -> None:
     with conn() as c:

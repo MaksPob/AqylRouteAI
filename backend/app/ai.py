@@ -113,6 +113,12 @@ PLAN_SYSTEM = """Ты формируешь межведомственный Case
 - Каждый шаг — service_id строго из справочника. Другие значения недоступны в схеме.
 - Не включай шаги, которые семья уже прошла, кроме случаев, когда требуется продление
   или переосвидетельствование. Если шаг выполнен, ставь already_done = true.
+- ОПИРАЙСЯ ТОЛЬКО НА ОТВЕТЫ ИНТЕРВЬЮ. Не включай шаг, если из ответов не следует,
+  что он нужен. Например: не предлагай оформить форму №031/у, если про неё
+  не спрашивали и в документах её нет — неизвестно, есть она у семьи или нет.
+  Про что нет данных — пиши в explanation соседнего шага или опускай вовсе.
+- Если диагноз подтверждён, консультация психиатра для постановки диагноза
+  больше не нужна. Дальше идёт динамическое наблюдение — это отдельная услуга.
 - Соблюдай зависимости: нельзя идти на МСЭ без формы №031/у, а форма №031/у требует
   заключения психиатра. Отражай это в depends_on.
 - Приоритет определяется важностью шага для ТЕКУЩЕГО маршрута, а не тяжестью РАС.
@@ -120,11 +126,112 @@ PLAN_SYSTEM = """Ты формируешь межведомственный Case
 - Сроки в due_in_days ориентировочные, их уточняет куратор. Отталкивайся от сроков справочника.
 - В explanation объясни родителю простыми словами, зачем шаг нужен именно их ребёнку.
   Без диагнозов, без медицинских оценок, без терминов без расшифровки.
-- 5–10 шагов. Лучше меньше и выполнимо, чем много и невозможно.
+- 5–8 шагов. Строй ЦЕПОЧКУ целиком, а не один ближайший шаг: если семья в самом
+  начале, план выглядит как консультация психиатра -> ВКК и форма №031/у -> МСЭ ->
+  ИПАР -> ПМПК, и каждый следующий шаг ссылается на предыдущий в depends_on.
+  Родителю важно видеть весь маршрут, а не только первый шаг: именно отсутствие
+  такой картины и заставляет семьи ходить по кругу.
+- Первым ставь то, что выполнимо прямо сейчас. Остальное идёт следом по зависимостям.
+""" + SAFETY
+
+
+# ───────────── интервью: модель выбирает вопрос, а не придумывает ─────────────
+
+def _question_ids() -> list[str]:
+    return [q["question_id"] for q in _demo_questions("ru")]
+
+
+def _decision_model():
+    """
+    Схема решения по интервью. next_question_id ограничен каноническим
+    списком ТЗ, поэтому модель не может придумать свой вопрос или задать
+    несколько вопросов об одном и том же.
+    """
+    ids = tuple(_question_ids()) + ("NONE",)
+    return create_model(
+        "InterviewDecision",
+        is_complete=(bool, Field(description="true, когда собрано достаточно для построения плана")),
+        next_question_id=(Literal[ids], Field(  # type: ignore[valid-type]
+            description="Код следующего вопроса из списка, либо NONE если интервью завершено")),
+        skip_reason=(str, Field(default="", description=(
+            "Если какие-то вопросы пропущены, потому что ответ уже известен из "
+            "предыдущих реплик — перечисли их коды и причину. Иначе пустая строка"))),
+        acknowledgement=(str, Field(default="", description=(
+            "Короткая человечная реакция на предыдущий ответ, одно предложение. "
+            "Без медицинских оценок и без диагнозов"))),
+        clarification=(str, Field(default="", description=(
+            "Пояснение простыми словами, если из последнего ответа видно, что родитель "
+            "не понимает термин. Иначе пустая строка"))),
+    )
+
+
+DECISION_SYSTEM = """Ты ведёшь адаптивное интервью с родителем ребёнка с расстройством аутистического спектра в Казахстане.
+
+Вопросы уже написаны и пронумерованы — ты их НЕ придумываешь. Твоя работа: решить,
+какой вопрос задать следующим, и какие пропустить.
+
+ПРАВИЛА:
+1. Задавай вопросы в порядке списка, пропуская те, ответ на которые уже однозначно
+   следует из предыдущих ответов. Пропуск обязательно объясни в skip_reason.
+2. Пропускать можно только при однозначном ответе. Примеры:
+   - родитель отметил «Заключение ПМПК» среди документов -> пропусти PMPC;
+   - родитель выбрал «Уже получили инвалидность» -> пропусти DISABILITY;
+   - диагноза ещё нет («только предположение») -> пропусти DISABILITY и SERVICES,
+     оформлять пока нечего.
+3. НИКОГДА не пропускай вопрос просто потому, что он кажется неважным. Если
+   сомневаешься — задай. Недостающий ответ дороже лишнего вопроса.
+4. Один вопрос на одну тему. Повторно уточнять то же самое другими словами запрещено.
+5. Когда заданы все применимые вопросы — is_complete = true, next_question_id = NONE.
+6. Если из ответа видно, что родитель не понимает термин, объясни его в clarification
+   простыми словами. Диагноз при этом не обсуждается.
 """ + SAFETY
 
 
 # ───────────────── что семья уже прошла (общая логика) ─────────────────
+
+def unverified_services(state: CaseState) -> set[str]:
+    """
+    Услуги, про которые интервью НЕ дало ответа. Ставить такой шаг в план —
+    значит гадать. Такие шаги не включаются, а попадают в список уточнений,
+    который куратор разбирает при проверке плана.
+
+    Важно различать два случая. «Родитель ответил на вопрос о документах и
+    формы №031/у среди них нет» — это знание: форму нужно оформить. А вот
+    «вопрос о документах вообще не задавали» — незнание, и тогда шаг ставить
+    нельзя. Раньше эти случаи смешивались, и форма пропадала из плана даже
+    тогда, когда родитель прямо сказал, что документов у него нет.
+    """
+    unknown: set[str] = set()
+    not_asked = set(state.missing_data)
+
+    # Про документы не спрашивали — значит про форму №031/у ничего не известно
+    if "DOCUMENTS" in not_asked and not (state.has_disability or state.has_pmpc_conclusion):
+        unknown.add("VKK_CONCLUSION")
+
+    # Фармакотерапию отдельным вопросом не выясняли — контроль дозы не назначаем
+    if not state.on_medication:
+        unknown.add("MEDICATION_TITRATION_CONTROL")
+
+    return unknown
+
+
+def derive_stage(state: CaseState) -> TrackStage:
+    """
+    Этап межведомственного трека выводится из документов семьи, а не из
+    оценки модели: модель регулярно называла диагностическим этап семьи,
+    у которой уже оформлена инвалидность. Порядок проверок — от позднего
+    этапа к раннему.
+    """
+    if state.child_age >= 14:
+        return TrackStage.VOCATIONAL
+    if state.has_pmpc_conclusion:
+        return TrackStage.REHABILITATION if state.services_receiving else TrackStage.EDUCATIONAL
+    if state.has_ipar or state.has_disability:
+        return TrackStage.EDUCATIONAL
+    if state.has_diagnosis:
+        return TrackStage.SOCIAL_LEGAL
+    return TrackStage.DIAGNOSTIC
+
 
 def completed_services(state: CaseState) -> set[str]:
     """
@@ -136,6 +243,8 @@ def completed_services(state: CaseState) -> set[str]:
     done: set[str] = set(state.services_receiving)
 
     if state.has_diagnosis:
+        # диагноз уже поставлен врачом: направлять к психиатру снова незачем,
+        # дальше идёт динамическое наблюдение, а это отдельная услуга
         done.add("PSYCHIATRIC_CONSULTATION")
     if state.has_pmpc_conclusion:
         done.update({"PMPC_APPLICATION", "VKK_CONCLUSION", "PSYCHIATRIC_CONSULTATION"})
@@ -152,17 +261,21 @@ def completed_services(state: CaseState) -> set[str]:
 
 def drop_completed(items: list, state: CaseState) -> tuple[list, list[str]]:
     """
-    Убирает шаги, которые семья уже прошла. Повторяющиеся услуги
-    (динамическое наблюдение, контроль терапии) остаются — их нужно
-    проходить снова. Возвращает (оставшиеся, причины отсева).
+    Убирает шаги, которые семья уже прошла, и шаги, про которые интервью
+    не дало данных. Повторяющиеся услуги (динамическое наблюдение) остаются.
+    Возвращает (оставшиеся, причины отсева для журнала куратора).
     """
     done = completed_services(state)
+    unknown = unverified_services(state)
     kept, dropped = [], []
     for it in items:
         sid = it.service_id if hasattr(it, "service_id") else it["service_id"]
         svc = catalog.by_id(sid) or {}
         if sid in done and not svc.get("recurring"):
             dropped.append(f"{sid}: у семьи это уже есть")
+            continue
+        if sid in unknown:
+            dropped.append(f"{sid}: об этом не спрашивали — нужно уточнить у родителя")
             continue
         kept.append(it)
     return kept, dropped
@@ -203,56 +316,66 @@ def next_question(history: list[dict], lang: str = "ru") -> tuple[InterviewStep,
     if client is None:
         return _demo_next_question(history, lang), "demo"
 
-    transcript = "\n".join(
-        f"[{h.get('question_id','?')}] Вопрос: {h['question']}\nОтвет родителя: {h['answer']}"
-        for h in history
-    ) or "(интервью ещё не начато)"
+    questions = {q["question_id"]: q for q in _demo_questions(lang)}
+    answered = {h.get("question_id", "") for h in history}
+    remaining = [qid for qid in questions if qid not in answered]
 
-    asked = [h.get("question_id", "") for h in history if h.get("question_id")]
-    left = MAX_QUESTIONS - len(history)
-    asked_note = (
-        f"\n\nУЖЕ ИСПОЛЬЗОВАННЫЕ question_id: {', '.join(asked)}. "
-        "Каждый из них использовать повторно ЗАПРЕЩЕНО. Если нужно уточнить ответ, "
-        "задай новый вопрос с новым уникальным question_id (например, REGION_CLARIFY)."
-        if asked else ""
-    )
-    budget_note = (
-        f"\n\nЗадано вопросов: {len(history)}. Осталось не больше {left}. "
-        f"Интервью должно уложиться в {MIN_QUESTIONS}-{MAX_QUESTIONS} вопросов. "
-        + ("Задай последний, самый важный вопрос и заверши интервью."
-           if left <= 2 else
-           "Выбирай вопросы, которые больше всего меняют маршрут; второстепенные уточнения пропускай.")
+    if not remaining:
+        return InterviewStep(is_complete=True, progress_current=len(history),
+                             progress_total=len(history), next_question=None,
+                             acknowledgement=DONE_MSG.get(lang, DONE_MSG["ru"])), "canon"
+
+    transcript = "\n".join(
+        f"[{h.get('question_id','?')}] {h['question']}\n   ответ: {h['answer']}"
+        for h in history
+    ) or "(интервью только начато)"
+
+    catalogue = "\n".join(
+        f"- {qid}: {questions[qid]['text']}" + ("  [УЖЕ ЗАДАН]" if qid in answered else "")
+        for qid in questions
     )
 
     try:
+        Decision = _decision_model()
         r = client.responses.parse(
             model=MODEL,
-            instructions=INTERVIEW_SYSTEM + f"\n\nЯзык общения: {lang}.",
-            input=f"Ход интервью:\n{transcript}{asked_note}{budget_note}\n\nЗадай следующий вопрос или заверши интервью.",
-            text_format=InterviewStep,
+            instructions=DECISION_SYSTEM + f"\n\nЯзык общения: {lang}.",
+            input=(f"СПИСОК ВОПРОСОВ:\n{catalogue}\n\n"
+                   f"ХОД ИНТЕРВЬЮ:\n{transcript}\n\n"
+                   f"Ещё не заданы: {', '.join(remaining)}.\n"
+                   "Какой вопрос задать следующим?"),
+            text_format=Decision,
         )
-        step = r.output_parsed
-        step.progress_current = len(history) + 1
-        step.progress_total = max(MIN_QUESTIONS, min(MAX_QUESTIONS, step.progress_total or MIN_QUESTIONS))
-        if step.progress_current > step.progress_total:
-            step.progress_total = min(MAX_QUESTIONS, step.progress_current)
-        # страховка: вопрос с фиксированным набором ответов не должен
-        # превращаться в свободный ввод — иначе ответ не распознается
-        if step.next_question and step.next_question.input_type in ("single_choice", "multi_choice") \
-                and not step.next_question.options:
-            step.next_question.input_type = "text"
-        # страховка: модель иногда повторяет код вопроса — делаем его уникальным,
-        # иначе ответ перезапишет предыдущий и состояние соберётся неверно
-        if step.next_question and step.next_question.question_id in asked:
-            base = step.next_question.question_id
-            n = 2
-            while f"{base}_{n}" in asked:
-                n += 1
-            step.next_question.question_id = f"{base}_{n}"
-        return step, "openai"
+        d = r.output_parsed
+
+        qid = d.next_question_id
+        # страховка: модель могла выбрать уже заданный вопрос или NONE раньше времени
+        if qid in answered or qid == "NONE":
+            if d.is_complete or not remaining:
+                return InterviewStep(is_complete=True, progress_current=len(history),
+                                     progress_total=len(history), next_question=None,
+                                     acknowledgement=d.acknowledgement or DONE_MSG.get(lang, DONE_MSG["ru"])), "openai"
+            qid = remaining[0]
+
+        q = dict(questions[qid])
+        # пояснение от модели дополняет заготовленное, а не заменяет его
+        if d.clarification:
+            q["clarification"] = d.clarification
+
+        if d.skip_reason:
+            print(f"[ai] пропущены вопросы: {d.skip_reason}")
+
+        return InterviewStep(
+            is_complete=False,
+            progress_current=len(history) + 1,
+            progress_total=min(MAX_QUESTIONS, len(history) + len(remaining)),
+            next_question=InterviewQuestion(**q),
+            acknowledgement=d.acknowledgement,
+        ), "openai"
+
     except Exception as e:                                   # noqa: BLE001
-        print(f"[ai] интервью — переход в demo: {type(e).__name__}: {e}")
-        return _demo_next_question(history, lang), "demo-fallback"
+        print(f"[ai] выбор вопроса — переход в канон: {type(e).__name__}: {e}")
+        return _demo_next_question(history, lang), "canon-fallback"
 
 
 def extract_state(history: list[dict]) -> tuple[CaseState, str]:
@@ -264,12 +387,28 @@ def extract_state(history: list[dict]) -> tuple[CaseState, str]:
     try:
         r = client.responses.parse(
             model=MODEL,
-            instructions="Извлеки структурированное состояние кейса из интервью. "
-                         "Ничего не домысливай: чего нет в ответах — в missing_data. " + SAFETY,
+            instructions=(
+                "Извлеки структурированное состояние кейса из интервью. "
+                "Ничего не домысливай: чего нет в ответах — в missing_data.\n\n"
+                "parent_phase определяй по ответу о самочувствии и по этапу маршрута:\n"
+                "- диагноз только предположили -> SHOCK;\n"
+                "- отвечает «очень тяжело, сил почти нет» или «справляюсь один, поддержки нет» -> DEPRESSION;\n"
+                "- отвечает «тяжело, но держусь» -> BARGAINING;\n"
+                "- отвечает «в целом справляюсь» и маршрут идёт -> ACCEPTANCE;\n"
+                "- ответа о самочувствии нет -> UNKNOWN.\n"
+                "parent_needs_support = true, если родитель сообщил о сильной усталости, "
+                "выгорании или отсутствии поддержки.\n\n"
+                "В missing_data перечисли КОДЫ вопросов, на которые ответа не было "
+                "(REGION, CHILD_AGE, STAGE, DIAGNOSIS, DOCUMENTS, PMPC, EDUCATION, "
+                "SERVICES, DISABILITY, CONTACTED, PROBLEMS, PARENT_STATE). "
+                "Это критично: по этому списку система решает, о чём нельзя строить догадки.\n"
+            ) + SAFETY,
             input=transcript,
             text_format=CaseState,
         )
-        return r.output_parsed, "openai"
+        st = r.output_parsed
+        st.current_stage = derive_stage(st)      # этап считаем сами
+        return st, "openai"
     except Exception as e:                                   # noqa: BLE001
         print(f"[ai] состояние — переход в demo: {type(e).__name__}: {e}")
         return _demo_state(history), "demo-fallback"
@@ -288,8 +427,18 @@ def build_plan(state: CaseState, lang: str = "ru") -> tuple[GeneratedCasePlan, s
         if catalog.facility_for(state.region.value, s["id"])
     }
 
+    chains = []
+    for svc in catalog.eligible(state.region.value, state.child_age):
+        pre = svc.get("prerequisites") or []
+        if pre:
+            chains.append(f"  {svc['id']} возможен только после: {', '.join(pre)}")
+
     prompt = f"""СПРАВОЧНИК УСЛУГ (только из него можно брать шаги):
 {services_text}
+
+ОБЯЗАТЕЛЬНЫЙ ПОРЯДОК (нарушать нельзя — это требование процедуры, а не пожелание):
+{chr(10).join(chains)}
+Шаг, предпосылка которого не выполнена и не входит в этот же план, будет отброшен.
 
 ПЛОЩАДКИ РЕГИОНА:
 {json.dumps(facilities, ensure_ascii=False, indent=1)}
@@ -298,6 +447,10 @@ def build_plan(state: CaseState, lang: str = "ru") -> tuple[GeneratedCasePlan, s
 {state.model_dump_json(indent=1)}
 
 ТОН: {TONE.get(state.parent_phase.value, TONE['UNKNOWN'])}
+
+ВНИМАНИЕ: этап семьи уже определён — {state.current_stage.value}. В summary опирайся
+именно на него, не переопределяй. Если инвалидность оформлена, семья точно не на
+диагностическом этапе.
 
 Сформируй Case Plan. Сегодня {date.today().isoformat()}."""
 
@@ -312,11 +465,46 @@ def build_plan(state: CaseState, lang: str = "ru") -> tuple[GeneratedCasePlan, s
         plan = r.output_parsed
         kept, rejected = catalog.validate_plan_items(plan.items, state.region.value, state.child_age)
         kept, already = drop_completed(kept, state)
+        kept, impossible = enforce_prerequisites(kept, state)
         plan.items = _renumber(kept)
-        return plan, "openai", rejected + already
+        return plan, "openai", rejected + already + impossible
     except Exception as e:                                   # noqa: BLE001
         print(f"[ai] план — переход в demo: {type(e).__name__}: {e}")
         return _demo_plan(state, lang), "demo-fallback", []
+
+
+def enforce_prerequisites(items: list, state: CaseState) -> tuple[list, list[str]]:
+    """
+    Убирает шаги, чьи предпосылки не выполнены и не входят в план.
+
+    Без этого модель выдаёт маршрут, невозможный административно: например,
+    прохождение МСЭ у семьи, где диагноз ещё не подтверждён, а формы №031/у нет.
+    МСЭ проводится на основании формы №031/у, а её оформляет ВКК после
+    заключения психиатра. Порядок здесь не пожелание, а требование процедуры.
+
+    Повторяем проход, пока список меняется: удаление шага может обрушить
+    другой, который на него опирался.
+    """
+    done = completed_services(state)
+    kept = list(items)
+    removed: list[str] = []
+
+    while True:
+        planned = {(i.service_id if hasattr(i, "service_id") else i["service_id"]) for i in kept}
+        drop = []
+        for it in kept:
+            sid = it.service_id if hasattr(it, "service_id") else it["service_id"]
+            prereqs = (catalog.by_id(sid) or {}).get("prerequisites") or []
+            missing = [p for p in prereqs if p not in done and p not in planned]
+            if missing:
+                drop.append((it, sid, missing))
+        if not drop:
+            break
+        for it, sid, missing in drop:
+            kept.remove(it)
+            removed.append(f"{sid}: невозможно до {', '.join(missing)}")
+
+    return kept, removed
 
 
 def _renumber(items: list) -> list:
@@ -433,14 +621,10 @@ def _demo_state(history: list[dict]) -> CaseState:
 
     has_disability = "DISABILITY" in docs or a.get("DISABILITY") == "YES" or stage in ("HAS_DISABILITY", "RECEIVING_HELP")
     has_pmpc = "PMPC" in docs or stage == "HAS_PMPC"
-    has_diag = stage not in ("SUSPECTED", "UNKNOWN", "") or "DOCTOR" in docs
+    has_diag = (a.get("DIAGNOSIS") == "YES" or "DOCTOR" in docs
+                or stage not in ("SUSPECTED", "UNKNOWN", ""))
 
-    if has_pmpc or has_disability:
-        cur = TrackStage.REHABILITATION if stage == "RECEIVING_HELP" else TrackStage.EDUCATIONAL
-    elif has_diag:
-        cur = TrackStage.SOCIAL_LEGAL
-    else:
-        cur = TrackStage.DIAGNOSTIC
+    cur = TrackStage.DIAGNOSTIC      # уточняется ниже через derive_stage
 
     pstate = a.get("PARENT_STATE", "")
     phase = {"EXHAUSTED": ParentPhase.DEPRESSION, "ALONE": ParentPhase.DEPRESSION,
@@ -448,15 +632,16 @@ def _demo_state(history: list[dict]) -> CaseState:
     if stage == "SUSPECTED":
         phase = ParentPhase.SHOCK
 
-    doc_names = {"DOCTOR": "Заключение врача-психиатра", "PMPC": "Заключение ПМПК", "DISABILITY": "Справка об инвалидности",
-                 "IPAR": "ИПАР", "SCHOOL": "Характеристика из организации образования", "REHAB": "Документы о реабилитации"}
+    doc_names = {"DOCTOR": "Заключение врача-психиатра", "FORM_031": "Форма №031/у", "PMPC": "Заключение ПМПК",
+                 "DISABILITY": "Справка об инвалидности", "IPAR": "ИПАР",
+                 "SCHOOL": "Характеристика из организации образования", "REHAB": "Документы о реабилитации"}
 
     try:
         age = float(str(a.get("CHILD_AGE", "5")).replace(",", ".").strip() or 5)
     except ValueError:
         age = 5.0
 
-    return CaseState(
+    st = CaseState(
         region=a.get("REGION", "ASTANA"),
         child_age=max(0.0, min(18.0, age)),
         current_stage=cur,
@@ -474,6 +659,8 @@ def _demo_state(history: list[dict]) -> CaseState:
         on_medication=False,
         missing_data=[q["question_id"] for q in _demo_questions("ru") if q["question_id"] not in a],
     )
+    st.current_stage = derive_stage(st)
+    return st
 
 
 def _demo_plan(state: CaseState, lang: str) -> GeneratedCasePlan:
@@ -481,6 +668,7 @@ def _demo_plan(state: CaseState, lang: str) -> GeneratedCasePlan:
     eligible = catalog.eligible(state.region.value, state.child_age)
     have_docs = set(state.documents_available)
     done = completed_services(state)
+    unknown = unverified_services(state)
 
     items: list[CasePlanItem] = []
     n = 0
@@ -490,13 +678,16 @@ def _demo_plan(state: CaseState, lang: str) -> GeneratedCasePlan:
         sid = s["id"]
         if sid in done and not s.get("recurring"):
             continue
+        if sid in unknown:
+            continue
         if s.get("conditional") == "only_if_medication" and not state.on_medication:
             continue
         if s.get("for_parent") and not state.parent_needs_support:
             continue
         # зависимости: включаем, только если предпосылка выполнена или тоже попала в план
         prereqs = s.get("prerequisites") or []
-        if any(p not in done and p not in {i.service_id for i in items} for p in prereqs):
+        planned = {i.service_id for i in items}
+        if any(p not in done and p not in planned for p in prereqs):
             continue
 
         n += 1

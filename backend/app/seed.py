@@ -21,6 +21,7 @@ CASE_1 = [  # «Раннее начало»: 3 года, диагноз пред
     ("REGION", "В каком городе или области вы сейчас живёте?", "ASTANA"),
     ("CHILD_AGE", "Сколько лет ребёнку?", "3"),
     ("STAGE", "На каком этапе вы сейчас?", "SUSPECTED"),
+    ("DIAGNOSIS", "Подтверждён ли диагноз врачом-психиатром?", "NO"),
     ("DOCUMENTS", "Какие документы у вас уже есть?", "NONE"),
     ("PMPC", "Проходили ли вы ПМПК?", "WHAT"),
     ("EDUCATION", "Где сейчас ребёнок получает образование?", "HOME"),
@@ -33,7 +34,8 @@ CASE_2 = [  # «Застрявший маршрут»: 6 лет, инвалид�
     ("REGION", "В каком городе или области вы сейчас живёте?", "KARAGANDA"),
     ("CHILD_AGE", "Сколько лет ребёнку?", "6"),
     ("STAGE", "На каком этапе вы сейчас?", "HAS_DISABILITY"),
-    ("DOCUMENTS", "Какие документы у вас уже есть?", "DOCTOR,DISABILITY,IPAR"),
+    ("DIAGNOSIS", "Подтверждён ли диагноз врачом-психиатром?", "YES"),
+    ("DOCUMENTS", "Какие документы у вас уже есть?", "DOCTOR,FORM_031,DISABILITY,IPAR"),
     ("EDUCATION", "Где сейчас ребёнок получает образование?", "KINDERGARTEN"),
     ("SERVICES", "Какие услуги ребёнок получает сейчас?", "NONE"),
     ("CONTACTED", "Куда вы уже обращались?", "CLINIC,SOCIAL,REHAB"),
@@ -49,8 +51,12 @@ def _build(owner_id: int, answers: list[tuple[str, str, str]], child_name: str) 
     for qid, q, a in answers:
         db.add_answer(cid, qid, q, a)
 
-    state, _ = ai.extract_state(db.get_answers(cid))
-    plan, engine, _ = ai.build_plan(state, "ru")
+    # Демонстрационные кейсы строятся фиксированным планировщиком, а не живой
+    # моделью: на защите они должны выглядеть одинаково при каждом запуске.
+    # Кейсы, которые создают пользователи, по-прежнему проходят через OpenAI.
+    state = ai._demo_state(db.get_answers(cid))
+    plan = ai._demo_plan(state, "ru")
+    engine = "deterministic"
     db.save_plan(cid, plan.items)
     db.update_case(cid, region=state.region.value, child_age=state.child_age,
                    case_status="pending_review", summary=plan.summary,
@@ -105,9 +111,30 @@ def ensure_seed() -> None:
                      f"Шаг {pmpc['item_code']} просрочен: ребёнку скоро в школу, условия не определены",
                      pmpc["item_code"])
 
-    # услуга ИПАР назначена, но организация её не предоставляет
+    # Услуга включена в ИПАР, но организация её не предоставляет — это и есть
+    # главный сюжет кейса. Если планировщик такой шаг не выдал (например, он
+    # зависит от ещё не пройденного ПМПК), добавляем его явно: родитель прямо
+    # сказал, что услуга назначена и не оказывается.
+    items = db.get_items(cid2)
     blocked = next((i for i in items if i["service_id"] in ("REHABILITATION_REFERRAL", "EDUCATIONAL_SUPPORT",
                                                             "PSYCHOLOGICAL_PEDAGOGICAL_SUPPORT")), None)
+    if blocked is None:
+        svc = catalog.by_id("PSYCHOLOGICAL_PEDAGOGICAL_SUPPORT")
+        code = f"CP-{len(items) + 1:03d}"
+        with db.conn() as c:
+            c.execute(
+                "INSERT INTO plan_items(case_id,item_code,service_id,title,description,explanation,"
+                "priority,responsible_role,due_date,status,documents_json,depends_on_json,created_by,"
+                "confirmed_by_curator,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (cid2, code, svc["id"], svc["title"]["ru"], svc["purpose"]["ru"],
+                 "Услуга включена в ИПАР, поэтому организация обязана её предоставить.",
+                 "HIGH", svc["responsible_role"],
+                 (date.today() - timedelta(days=5)).isoformat(), "TODO", "[]", "[]", "curator", 1,
+                 datetime.now().isoformat()),
+            )
+        items = db.get_items(cid2)
+        blocked = next(i for i in items if i["item_code"] == code)
+
     if blocked:
         db.update_item(cid2, blocked["item_code"], status="BLOCKED",
                        due_date=(date.today() - timedelta(days=5)).isoformat(),

@@ -6,6 +6,8 @@ import { api, type CaseDetail, type CaseSummary, type Item, type Status, token }
 import { BLOCKER_NAMES, formatDate, localName, REGION_NAMES, ROLE_NAMES, STAGE_NAMES, t } from "@/lib/i18n";
 import { Banner, Header, Icon, PriorityMark, Spinner, StatusBadge, useLang } from "@/components/ui";
 import { PhqCard } from "@/components/phq";
+import { Documents } from "@/components/documents";
+import { WellbeingTrack } from "@/components/wellbeing";
 
 /* ─────────────────────── карточка шага ─────────────────────── */
 
@@ -297,6 +299,12 @@ function PlanInner() {
                   <Icon.heart size={18} /> {t("supportTitle", lang)}
                 </h3>
                 <p className="mb-4 text-[0.95rem]" style={{ color: "var(--ink-2)" }}>{detail.parent_support_note}</p>
+                {detail.phq9_history?.length > 0 && (
+                  <div className="mb-4 rounded-[var(--radius-s)] p-4" style={{ background: "var(--surface-2)" }}>
+                    <h4 className="mb-2 text-[0.88rem] font-semibold">Как меняется ваше состояние</h4>
+                    <WellbeingTrack history={detail.phq9_history} />
+                  </div>
+                )}
                 <PhqCard caseId={detail.case_id} lang={lang} initialScore={detail.phq9_score} />
               </section>
             )}
@@ -344,12 +352,27 @@ function PlanInner() {
               </details>
             )}
 
+            <section className="card mb-6 p-5 sm:p-6">
+              <h2 className="mb-1">Ваши документы</h2>
+              <p className="mb-4 text-[0.9rem]" style={{ color: "var(--ink-2)" }}>
+                Загрузите справки и заключения — они будут в одном месте, и их не придётся
+                собирать заново при обращении в следующее ведомство. Документы видит куратор вашего кейса.
+              </p>
+              <Documents caseId={detail.case_id} lang={lang} />
+            </section>
+
             {!detail.parent_support_note && (
               <section className="card mb-6 p-5 sm:p-6">
                 <h3 className="mb-2 inline-flex items-center gap-2"><Icon.heart size={18} /> {t("supportTitle", lang)}</h3>
                 <p className="mb-4 text-[0.93rem]" style={{ color: "var(--ink-2)" }}>
                   Маршрут ребёнка зависит и от вашего состояния. Если чувствуете, что сил меньше — это важно заметить вовремя.
                 </p>
+                {detail.phq9_history?.length > 0 && (
+                  <div className="mb-4 rounded-[var(--radius-s)] p-4" style={{ background: "var(--surface-2)" }}>
+                    <h4 className="mb-2 text-[0.88rem] font-semibold">Как меняется ваше состояние</h4>
+                    <WellbeingTrack history={detail.phq9_history} />
+                  </div>
+                )}
                 <PhqCard caseId={detail.case_id} lang={lang} initialScore={detail.phq9_score} />
               </section>
             )}
