@@ -54,7 +54,7 @@ export default function CuratorDashboard() {
     blocked: a.blocked + c.stats.blocked,
     active: a.active + c.stats.active,
     done: a.done + c.stats.done,
-    review: a.review + (c.case_status === "pending_review" ? 1 : 0),
+    review: a.review + (!c.reviewed && c.case_status === "active" ? 1 : 0),
   }), { overdue: 0, blocked: 0, active: 0, done: 0, review: 0 });
 
   // Управленческая аналитика: не «17 просрочено», а по причинам остановки
@@ -64,7 +64,7 @@ export default function CuratorDashboard() {
 
   const shown = cases.filter((c) =>
     filter === "all" ? true
-    : filter === "review" ? c.case_status === "pending_review"
+    : filter === "review" ? !c.reviewed && c.case_status === "active"
     : filter === "overdue" ? c.stats.overdue > 0
     : c.stats.blocked > 0);
 
@@ -82,7 +82,7 @@ export default function CuratorDashboard() {
       <div className="mx-auto max-w-6xl px-4 pt-5 sm:px-6 sm:pt-7">
         {/* сводка */}
         <div className="scroll-row mb-7">
-          <Tile n={totals.review} label={t("pendingReview", lang)} color="var(--st-waiting)" bg="var(--st-waiting-bg)"
+          <Tile n={totals.review} label="Не проверено" color="var(--st-waiting)" bg="var(--st-waiting-bg)"
                 icon={Icon.clock} onClick={() => setFilter(filter === "review" ? "all" : "review")} active={filter === "review"} />
           <Tile n={totals.overdue} label={t("stOVERDUE", lang)} color="var(--st-overdue)" bg="var(--st-overdue-bg)"
                 icon={Icon.alert} onClick={() => setFilter(filter === "overdue" ? "all" : "overdue")} active={filter === "overdue"} />
@@ -114,10 +114,10 @@ export default function CuratorDashboard() {
                         <span className="text-[0.82rem]" style={{ color: "var(--ink-muted)" }}>
                           {c.case_id} · {c.child_age > 0 && `${c.child_age} лет · `}{localName(REGION_NAMES, c.region, lang)}
                         </span>
-                        {c.case_status === "pending_review" && (
+                        {!c.reviewed && c.case_status === "active" && (
                           <span className="rounded-full px-2.5 py-0.5 text-[0.75rem] font-semibold"
                                 style={{ background: "var(--st-waiting-bg)", color: "var(--st-waiting)" }}>
-                            {t("pendingReview", lang)}
+                            не проверен
                           </span>
                         )}
                       </div>

@@ -59,7 +59,7 @@ def _build(owner_id: int, answers: list[tuple[str, str, str]], child_name: str) 
     engine = "deterministic"
     db.save_plan(cid, plan.items)
     db.update_case(cid, region=state.region.value, child_age=state.child_age,
-                   case_status="pending_review", summary=plan.summary,
+                   case_status="active", summary=plan.summary,
                    parent_support_note=plan.parent_support_note,
                    state_json=state.model_dump_json(), engine=engine)
     db.add_event(cid, "case_created", "Система", "Синтетический кейс создан для демонстрации")
@@ -84,7 +84,8 @@ def ensure_seed() -> None:
     if not parent1:
         return
 
-    # Кейс 1 остаётся на проверке у куратора — показывает сам gate
+    # Кейс 1: семья уже работает по плану, но куратор его ещё не просматривал —
+    # в панели куратора он помечен как непроверенный
     _build(parent1, CASE_1, "Алихан")
 
     # Кейс 2 подтверждён и уже «прожил» какое-то время: есть выполненное,

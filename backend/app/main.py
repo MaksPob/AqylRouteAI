@@ -215,14 +215,18 @@ def build_plan(case_id: str, lang: str = "ru", u: dict = Depends(current_user)):
         case_id,
         region=state.region.value,
         child_age=state.child_age,
-        case_status="pending_review",
+        # План открывается семье сразу: ожидание проверки стоило бы семье
+        # времени, а именно его продукт и экономит. Куратор подключается
+        # параллельно — правит шаги и ведёт контроль, не блокируя старт.
+        case_status="active",
         summary=plan.summary,
         parent_support_note=plan.parent_support_note,
         state_json=state.model_dump_json(),
         engine=f"{eng_state}/{eng_plan}",
     )
     db.add_event(case_id, "plan_generated", "AI",
-                 f"Сформирован план из {len(plan.items)} шагов, ожидает проверки куратора")
+                 f"Сформирован план из {len(plan.items)} шагов и открыт семье. "
+                 f"Требуется проверка куратора")
 
     # Чего интервью не выяснило — куратор уточняет при проверке. Это честнее,
     # чем ставить шаг наугад: план не должен содержать того, о чём не спрашивали.
@@ -274,9 +278,12 @@ def cases(u: Annotated[dict, Depends(current_user)]):
     out = []
     for r in rows:
         h = _hydrate(r)
+        live = [i for i in h["items"] if i["status"] != "CANCELLED"]
         out.append({"case_id": h["case_id"], "region": h["region"], "child_age": h["child_age"],
                     "child_name": h["child_name"], "case_status": h["case_status"],
                     "created_at": h["created_at"], "stats": h["stats"],
+                    # «проверен» означает, что куратор просмотрел каждый шаг
+                    "reviewed": bool(live) and all(i["confirmed_by_curator"] for i in live),
                     "phq9_score": h.get("phq9_score"), "phq9_severity": h.get("phq9_severity", "")})
     return out
 
@@ -290,10 +297,6 @@ def case_detail(case_id: str, u: Annotated[dict, Depends(current_user)]):
         raise HTTPException(403, "Это не ваш кейс")
 
     h = _hydrate(c)
-    # родитель не видит план, пока куратор его не подтвердил (п.9 ТЗ)
-    if u["role"] == "parent" and c["case_status"] == "pending_review":
-        h["items"] = []
-        h["pending_notice"] = "Ваш план сформирован и сейчас проверяется куратором. Обычно это занимает немного времени."
     h["events"] = db.get_events(case_id, limit=50)
     h["documents"] = [{k: v for k, v in d.items() if k != "stored_name"} for d in db.get_documents(case_id)]
     h["phq9_history"] = db.get_phq9_history(case_id)
@@ -344,12 +347,17 @@ def delete_item(case_id: str, item_code: str, u: Annotated[dict, Depends(curator
 
 @app.post("/api/cases/{case_id}/confirm")
 def confirm_plan(case_id: str, u: Annotated[dict, Depends(curator_only)]):
+    """
+    Отметка «проверено куратором». План семья видит и без неё — отметка
+    говорит родителю, что маршрут просмотрел живой специалист.
+    """
     c = db.get_case(case_id)
     if not c:
         raise HTTPException(404, "Кейс не найден")
     db.confirm_all_items(case_id)
     db.update_case(case_id, case_status="active", curator_id=u["id"], confirmed_at=datetime.now().isoformat())
-    db.add_event(case_id, "plan_confirmed", u["display_name"], "Куратор подтвердил план, он доступен родителю")
+    db.add_event(case_id, "plan_confirmed", u["display_name"],
+                 "Куратор проверил план")
     return _hydrate(db.get_case(case_id))
 
 
@@ -565,9 +573,10 @@ def notifications(u: Annotated[dict, Depends(current_user)]):
                 "days_overdue": it["days_overdue"], "level": lvl,
                 "action": it.get("escalation_action", ""), "responsible_role": it["responsible_role"],
             })
-        if u["role"] == "curator" and c["case_status"] == "pending_review":
-            out.append({"case_id": c["case_id"], "item_code": None, "title": "План ожидает проверки",
-                        "days_overdue": 0, "level": "REVIEW", "action": "Проверить и подтвердить план",
+        if u["role"] == "curator" and not c.get("confirmed_at") and c["case_status"] == "active":
+            out.append({"case_id": c["case_id"], "item_code": None, "title": "План ещё не проверен",
+                        "days_overdue": 0, "level": "REVIEW",
+                        "action": "Семья уже работает по плану — просмотрите и при необходимости поправьте",
                         "responsible_role": "CURATOR"})
     out.sort(key=lambda x: -x["days_overdue"])
     return out

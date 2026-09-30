@@ -465,7 +465,7 @@ def build_plan(state: CaseState, lang: str = "ru") -> tuple[GeneratedCasePlan, s
         plan = r.output_parsed
         kept, rejected = catalog.validate_plan_items(plan.items, state.region.value, state.child_age)
         kept, already = drop_completed(kept, state)
-        kept, impossible = enforce_prerequisites(kept, state)
+        kept, impossible = enforce_prerequisites(kept, state, lang)
         plan.items = _renumber(kept)
         return plan, "openai", rejected + already + impossible
     except Exception as e:                                   # noqa: BLE001
@@ -473,54 +473,99 @@ def build_plan(state: CaseState, lang: str = "ru") -> tuple[GeneratedCasePlan, s
         return _demo_plan(state, lang), "demo-fallback", []
 
 
-def enforce_prerequisites(items: list, state: CaseState) -> tuple[list, list[str]]:
+def enforce_prerequisites(items: list, state: CaseState, lang: str = "ru") -> tuple[list, list[str]]:
     """
-    Убирает шаги, чьи предпосылки не выполнены и не входят в план.
+    Приводит план в административно исполнимый вид.
 
-    Без этого модель выдаёт маршрут, невозможный административно: например,
-    прохождение МСЭ у семьи, где диагноз ещё не подтверждён, а формы №031/у нет.
-    МСЭ проводится на основании формы №031/у, а её оформляет ВКК после
-    заключения психиатра. Порядок здесь не пожелание, а требование процедуры.
+    Модель регулярно выдаёт шаг, минуя предпосылку: например, МСЭ у семьи,
+    где формы №031/у ещё нет. МСЭ проводится на основании этой формы, а её
+    оформляет ВКК — порядок здесь требование процедуры, а не пожелание.
 
-    Повторяем проход, пока список меняется: удаление шага может обрушить
-    другой, который на него опирался.
+    Недостающую предпосылку ДОСТРАИВАЕМ, а не выбрасываем зависимый шаг:
+    семье нужен весь маршрут, и удаление превращало план в пустой список.
+    Выбрасываем только то, чего нельзя достроить — если услуга недоступна
+    региону или возрасту.
     """
     done = completed_services(state)
-    kept = list(items)
-    removed: list[str] = []
+    unknown = unverified_services(state)
+    allowed = {x["id"] for x in catalog.eligible(state.region.value, state.child_age)}
 
-    while True:
+    kept = list(items)
+    notes: list[str] = []
+
+    for _ in range(6):                       # цепочки в каталоге короткие
         planned = {(i.service_id if hasattr(i, "service_id") else i["service_id"]) for i in kept}
-        drop = []
-        for it in kept:
+        added = False
+
+        for it in list(kept):
             sid = it.service_id if hasattr(it, "service_id") else it["service_id"]
             prereqs = (catalog.by_id(sid) or {}).get("prerequisites") or []
-            missing = [p for p in prereqs if p not in done and p not in planned]
-            if missing:
-                drop.append((it, sid, missing))
-        if not drop:
-            break
-        for it, sid, missing in drop:
-            kept.remove(it)
-            removed.append(f"{sid}: невозможно до {', '.join(missing)}")
+            for pre in prereqs:
+                if pre in done or pre in planned:
+                    continue
+                svc = catalog.by_id(pre)
+                if not svc or pre not in allowed or pre in unknown:
+                    kept.remove(it)
+                    notes.append(f"{sid}: невозможно без {pre}")
+                    added = True
+                    break
+                kept.insert(kept.index(it), _item_from_service(svc, len(kept) + 1, lang))
+                planned.add(pre)
+                notes.append(f"{pre}: добавлен — без него {sid} невозможен")
+                added = True
+            if added:
+                break
 
-    return kept, removed
+        if not added:
+            break
+
+    # шаги идут в порядке зависимостей: предпосылка раньше того, что её требует
+    order = {sid: n for n, sid in enumerate(
+        [x["id"] for x in catalog.services()])}
+    kept.sort(key=lambda i: order.get(i.service_id if hasattr(i, "service_id") else i["service_id"], 99))
+
+    return kept, notes
+
+
+def _item_from_service(svc: dict, n: int, lang: str = "ru") -> CasePlanItem:
+    """Шаг, собранный прямо из справочника, — для достройки цепочки."""
+    return CasePlanItem(
+        id=f"CP-{n:03d}",
+        service_id=svc["id"],
+        title=svc["title"].get(lang, svc["title"]["ru"]),
+        description=svc["purpose"].get(lang, svc["purpose"]["ru"]),
+        priority=Priority(svc["default_priority"]),
+        responsible_role=svc["responsible_role"],
+        due_in_days=svc["default_duration_days"],
+        documents=[{"name": d, "status": "missing"} for d in svc.get("required_documents", [])],
+        explanation=svc["purpose"].get(lang, svc["purpose"]["ru"]),
+        depends_on=[],
+        already_done=False,
+    )
 
 
 def _renumber(items: list) -> list:
-    """После отсева коды шагов идут подряд, а ссылки depends_on остаются валидными."""
-    mapping = {}
+    """
+    Нумерует шаги подряд и заново выводит depends_on из справочника:
+    после достройки цепочки ссылки модели уже не соответствуют плану.
+    """
     for n, it in enumerate(items, 1):
-        old = it.id if hasattr(it, "id") else it["id"]
-        mapping[old] = f"CP-{n:03d}"
-    alive = set(mapping)
-    for it in items:
         if hasattr(it, "id"):
-            it.depends_on = [mapping[d] for d in it.depends_on if d in alive]
-            it.id = mapping[it.id]
+            it.id = f"CP-{n:03d}"
         else:
-            it["depends_on"] = [mapping[d] for d in it.get("depends_on", []) if d in alive]
-            it["id"] = mapping[it["id"]]
+            it["id"] = f"CP-{n:03d}"
+
+    by_service = {(i.service_id if hasattr(i, "service_id") else i["service_id"]):
+                  (i.id if hasattr(i, "id") else i["id"]) for i in items}
+
+    for it in items:
+        sid = it.service_id if hasattr(it, "service_id") else it["service_id"]
+        prereqs = (catalog.by_id(sid) or {}).get("prerequisites") or []
+        deps = [by_service[p] for p in prereqs if p in by_service]
+        if hasattr(it, "depends_on"):
+            it.depends_on = deps
+        else:
+            it["depends_on"] = deps
     return items
 
 

@@ -224,8 +224,7 @@ function PlanInner() {
                         </span>
                       </div>
                       <div className="text-[0.85rem]" style={{ color: "var(--ink-muted)" }}>
-                        {c.case_status === "pending_review" ? t("pendingReview", lang)
-                          : c.case_status === "interview" ? t("interviewing", lang)
+                        {c.case_status === "interview" ? t("interviewing", lang)
                           : `${c.stats.done + c.stats.active + c.stats.overdue + c.stats.blocked} ${t("stepsTotal", lang)}`}
                       </div>
                     </div>
@@ -257,6 +256,9 @@ function PlanInner() {
   // ТЗ: «Сейчас нужно сделать 3 вещи». Родителю в стрессе список из десяти
   // пунктов читается как «всё сразу и невозможно», поэтому показываем
   // первые три (они уже отсортированы по приоритету и сроку), остальное — по запросу.
+  // Куратор мог ещё не дойти до кейса: план работает, но честно помечен как предварительный
+  const reviewed = visible.length > 0 && visible.every((i) => i.confirmed_by_curator);
+
   const FOCUS = 3;
   const focus = showAll ? todo : todo.slice(0, FOCUS);
   const rest = todo.length - focus.length;
@@ -269,20 +271,20 @@ function PlanInner() {
               back={() => router.push("/plan")} />
 
       <div className="mx-auto max-w-3xl px-4 pt-5 sm:px-6 sm:pt-7">
-        {detail.pending_notice ? (
-          <div className="card p-8 text-center">
-            <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full"
-                  style={{ background: "var(--st-waiting-bg)", color: "var(--st-waiting)" }}>
-              <Icon.clock size={24} />
-            </span>
-            <h2 className="mb-2">{t("pendingReview", lang)}</h2>
-            <p className="mx-auto max-w-md" style={{ color: "var(--ink-2)" }}>{detail.pending_notice}</p>
-          </div>
-        ) : (
+        {(
           <>
             {detail.summary && (
               <section className="card mb-6 p-5 sm:p-6">
                 <p className="text-[1.01rem] leading-relaxed sm:text-[1.03rem]">{detail.summary}</p>
+                <p className="mt-4 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[0.84rem] font-medium"
+                   style={reviewed
+                     ? { background: "var(--st-done-bg)", color: "var(--st-done)" }
+                     : { background: "var(--surface-2)", color: "var(--ink-2)" }}>
+                  {reviewed ? <Icon.shield size={15} /> : <Icon.clock size={15} />}
+                  {reviewed
+                    ? "План проверен куратором"
+                    : "План предварительный — куратор скоро его просмотрит"}
+                </p>
                 {urgentCount > 0 && (
                   <p className="mt-4 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[0.86rem] font-semibold"
                      style={{ background: "var(--st-overdue-bg)", color: "var(--st-overdue)" }}>

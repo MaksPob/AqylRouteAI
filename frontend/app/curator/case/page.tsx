@@ -180,7 +180,10 @@ function CaseInner() {
   if (!d) return <Spinner label={t("loading", lang)} />;
 
   const items = d.items.filter((i) => i.status !== "CANCELLED");
-  const pending = d.case_status === "pending_review";
+  // Семья уже видит план. Куратор его просматривает и правит, а отметка
+  // о проверке говорит родителю, что маршрут посмотрел живой специалист.
+  const items0 = d.items.filter((i) => i.status !== "CANCELLED");
+  const pending = items0.length > 0 && !items0.every((i) => i.confirmed_by_curator);
 
   const confirm = async () => {
     setBusy(true);
@@ -192,7 +195,7 @@ function CaseInner() {
       <Header lang={lang} setLang={setLang}
               title={`${d.child_name || "Кейс"} · ${d.case_id}`}
               subtitle={`${d.child_age} лет · ${localName(REGION_NAMES, d.region, lang)} · ${
-                pending ? t("pendingReview", lang) : t("activeCase", lang)}`}
+                pending ? "не проверен куратором" : "проверен"}`}
               back={() => router.push("/curator")} />
 
       <div className="mx-auto max-w-5xl px-4 pt-5 sm:px-6 sm:pt-7">
@@ -200,13 +203,14 @@ function CaseInner() {
           <section className="card mb-6 flex flex-wrap items-center justify-between gap-4 p-5 max-sm:sticky max-sm:top-[60px] max-sm:z-20"
                    style={{ borderColor: "var(--brand)" }}>
             <div className="min-w-0">
-              <h3 className="mb-1">План готов к проверке</h3>
+              <h3 className="mb-1">Семья уже работает по этому плану</h3>
               <p className="text-[0.88rem]" style={{ color: "var(--ink-2)" }}>
-                Проверьте маршрут, услуги, сроки и документы. {t("confirmHint", lang)}
+                Проверьте маршрут, услуги, сроки и документы. Правки видны родителю сразу.
+                Отметка о проверке покажет семье, что план посмотрел специалист.
               </p>
             </div>
             <button className="btn btn-primary w-full shrink-0 sm:w-auto" onClick={confirm} disabled={busy}>
-              <Icon.check size={17} /> {t("confirmPlan", lang)}
+              <Icon.check size={17} /> Отметить проверенным
             </button>
           </section>
         )}

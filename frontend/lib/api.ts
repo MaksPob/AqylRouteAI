@@ -63,6 +63,7 @@ export interface Stats {
 export interface CaseSummary {
   case_id: string; region: string; child_age: number; child_name: string;
   case_status: string; created_at: string; stats: Stats;
+  reviewed: boolean;
   phq9_score: number | null; phq9_severity: string;
 }
 
