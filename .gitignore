@@ -7,7 +7,6 @@
 .vscode/
 .idea/
 *.swp
-*.swo
 
 # Env / secrets
 .env
@@ -15,7 +14,19 @@
 !.env.example
 *.pem
 *.key
-secrets/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.db
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+build/
+next-env.d.ts
 
 # Logs
 *.log

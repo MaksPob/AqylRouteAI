@@ -1,0 +1,387 @@
+"""AqylRoute AI — FastAPI. Межведомственный маршрут семьи ребёнка с РАС."""
+from __future__ import annotations
+
+import json
+import os
+from datetime import date, datetime
+from pathlib import Path
+from typing import Annotated
+
+from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+from . import ai, catalog, db, deadline, phq9
+from .schemas import CaseState
+
+# .env читаем вручную — без лишней зависимости
+_env = Path(__file__).resolve().parent.parent.parent / ".env"
+if _env.exists():
+    for line in _env.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+app = FastAPI(title="AqylRoute AI", version="1.0")
+app.add_middleware(
+    CORSMiddleware, allow_origins=["*"], allow_credentials=True,
+    allow_methods=["*"], allow_headers=["*"],
+)
+
+
+@app.on_event("startup")
+def _startup() -> None:
+    db.init()
+    from .seed import ensure_seed
+    ensure_seed()
+
+
+# ─────────────────────────── авторизация ───────────────────────────
+
+def current_user(authorization: Annotated[str | None, Header()] = None) -> dict:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "Требуется вход в систему")
+    u = db.user_by_token(authorization[7:])
+    if not u:
+        raise HTTPException(401, "Сессия истекла, войдите заново")
+    return u
+
+
+def curator_only(u: Annotated[dict, Depends(current_user)]) -> dict:
+    if u["role"] != "curator":
+        raise HTTPException(403, "Действие доступно только куратору")
+    return u
+
+
+class LoginIn(BaseModel):
+    login: str
+    password: str
+
+
+@app.post("/api/auth/login")
+def login(body: LoginIn):
+    r = db.authenticate(body.login, body.password)
+    if not r:
+        raise HTTPException(401, "Неверный логин или пароль")
+    return r
+
+
+@app.post("/api/auth/logout")
+def do_logout(authorization: Annotated[str | None, Header()] = None):
+    if authorization and authorization.startswith("Bearer "):
+        db.logout(authorization[7:])
+    return {"ok": True}
+
+
+@app.get("/api/auth/me")
+def me(u: Annotated[dict, Depends(current_user)]):
+    return {"id": u["id"], "login": u["login"], "role": u["role"],
+            "display_name": u["display_name"], "region": u["region"]}
+
+
+# ─────────────────────────── справочники ───────────────────────────
+
+@app.get("/api/catalog")
+def get_catalog():
+    c = catalog.catalog()
+    return {"services": c["services"], "regions": c["regions"],
+            "enums": catalog.enums(), "deadlines_are_provisional": True}
+
+
+@app.get("/api/health")
+def health():
+    return {"ok": True, "ai_engine": "openai" if os.getenv("OPENAI_API_KEY") else "demo",
+            "model": ai.MODEL, "services": len(catalog.service_ids())}
+
+
+# ───────────────────────────── интервью ─────────────────────────────
+
+class StartIn(BaseModel):
+    child_name: str = ""
+    lang: str = "ru"
+
+
+@app.post("/api/cases/start")
+def start_case(body: StartIn, u: Annotated[dict, Depends(current_user)]):
+    cid = db.create_case(u["id"], u["region"] or "ASTANA", 0.0, body.child_name)
+    step, engine = ai.next_question([], body.lang)
+    db.add_event(cid, "case_created", u["display_name"], "Кейс создан, начато интервью")
+    return {"case_id": cid, "step": step.model_dump(), "engine": engine}
+
+
+class AnswerIn(BaseModel):
+    case_id: str
+    question_id: str
+    question: str
+    answer: str
+    lang: str = "ru"
+
+
+@app.post("/api/interview/answer")
+def answer(body: AnswerIn, u: Annotated[dict, Depends(current_user)]):
+    case = db.get_case(body.case_id)
+    if not case:
+        raise HTTPException(404, "Кейс не найден")
+
+    db.add_answer(body.case_id, body.question_id, body.question, body.answer)
+
+    # регион и возраст фиксируем сразу — от них зависит фильтрация каталога
+    if body.question_id == "REGION" and body.answer in ("ASTANA", "KARAGANDA", "ALMATY"):
+        db.update_case(body.case_id, region=body.answer)
+    if body.question_id == "CHILD_AGE":
+        try:
+            db.update_case(body.case_id, child_age=float(str(body.answer).replace(",", ".")))
+        except ValueError:
+            pass
+
+    history = db.get_answers(body.case_id)
+    step, engine = ai.next_question(history, body.lang)
+    return {"step": step.model_dump(), "engine": engine, "answered": len(history)}
+
+
+@app.post("/api/interview/build-plan")
+def build_plan(case_id: str, lang: str = "ru", u: dict = Depends(current_user)):
+    case = db.get_case(case_id)
+    if not case:
+        raise HTTPException(404, "Кейс не найден")
+
+    history = db.get_answers(case_id)
+    if len(history) < 3:
+        raise HTTPException(400, "Слишком мало ответов для построения плана")
+
+    state, eng_state = ai.extract_state(history)
+    plan, eng_plan, rejected = ai.build_plan(state, lang)
+
+    db.save_plan(case_id, plan.items)
+    db.update_case(
+        case_id,
+        region=state.region.value,
+        child_age=state.child_age,
+        case_status="pending_review",
+        summary=plan.summary,
+        parent_support_note=plan.parent_support_note,
+        state_json=state.model_dump_json(),
+        engine=f"{eng_state}/{eng_plan}",
+    )
+    db.add_event(case_id, "plan_generated", "AI",
+                 f"Сформирован план из {len(plan.items)} шагов, ожидает проверки куратора")
+    if rejected:
+        db.add_event(case_id, "items_rejected", "Система",
+                     "Отклонены шаги вне справочника: " + "; ".join(rejected))
+
+    return {"case_id": case_id, "engine": f"{eng_state}/{eng_plan}",
+            "rejected": rejected, "plan": plan.model_dump(), "state": state.model_dump()}
+
+
+# ────────────────────────────── кейсы ──────────────────────────────
+
+def _hydrate(case: dict) -> dict:
+    """Собирает кейс целиком и пересчитывает просрочку на момент чтения."""
+    items = [deadline.apply(i) for i in db.get_items(case["case_id"])]
+    for it in items:
+        s = catalog.by_id(it["service_id"]) or {}
+        it["stage"] = s.get("stage", "")
+        it["authority"] = s.get("authority", "")
+        it["facilities"] = catalog.facility_for(case["region"], it["service_id"])
+        it["portal"] = s.get("portal", "")
+    case = dict(case)
+    case["items"] = items
+    case["stats"] = deadline.case_summary(items)
+    case["state"] = json.loads(case["state_json"]) if case.get("state_json") else None
+    case.pop("state_json", None)
+    return case
+
+
+@app.get("/api/cases")
+def cases(u: Annotated[dict, Depends(current_user)]):
+    rows = db.list_cases() if u["role"] == "curator" else db.list_cases(owner_id=u["id"])
+    out = []
+    for r in rows:
+        h = _hydrate(r)
+        out.append({"case_id": h["case_id"], "region": h["region"], "child_age": h["child_age"],
+                    "child_name": h["child_name"], "case_status": h["case_status"],
+                    "created_at": h["created_at"], "stats": h["stats"],
+                    "phq9_score": h.get("phq9_score"), "phq9_severity": h.get("phq9_severity", "")})
+    return out
+
+
+@app.get("/api/cases/{case_id}")
+def case_detail(case_id: str, u: Annotated[dict, Depends(current_user)]):
+    c = db.get_case(case_id)
+    if not c:
+        raise HTTPException(404, "Кейс не найден")
+    if u["role"] == "parent" and c["owner_id"] != u["id"]:
+        raise HTTPException(403, "Это не ваш кейс")
+
+    h = _hydrate(c)
+    # родитель не видит план, пока куратор его не подтвердил (п.9 ТЗ)
+    if u["role"] == "parent" and c["case_status"] == "pending_review":
+        h["items"] = []
+        h["pending_notice"] = "Ваш план сформирован и сейчас проверяется куратором. Обычно это занимает немного времени."
+    h["events"] = db.get_events(case_id, limit=50)
+    return h
+
+
+# ──────────────────────── работа куратора ────────────────────────
+
+class ItemPatch(BaseModel):
+    title: str | None = None
+    priority: str | None = None
+    responsible_role: str | None = None
+    due_date: str | None = None
+    status: str | None = None
+    explanation: str | None = None
+    blocker_type: str | None = None
+    blocker_description: str | None = None
+
+
+@app.patch("/api/cases/{case_id}/items/{item_code}")
+def patch_item(case_id: str, item_code: str, body: ItemPatch, u: Annotated[dict, Depends(curator_only)]):
+    fields: dict = {}
+    for k in ("title", "priority", "responsible_role", "due_date", "status", "explanation"):
+        v = getattr(body, k)
+        if v is not None:
+            fields[k] = v
+    if body.blocker_type:
+        fields["blocker"] = {"type": body.blocker_type, "description": body.blocker_description or ""}
+        fields["status"] = "BLOCKED"
+    if body.status and body.status != "BLOCKED":
+        fields["blocker"] = None
+
+    if not fields:
+        raise HTTPException(400, "Нет полей для изменения")
+
+    db.update_item(case_id, item_code, **fields)
+    db.add_event(case_id, "item_updated", u["display_name"],
+                 f"Куратор изменил шаг {item_code}: " + ", ".join(fields), item_code)
+    return _hydrate(db.get_case(case_id))
+
+
+@app.post("/api/cases/{case_id}/items/{item_code}/delete")
+def delete_item(case_id: str, item_code: str, u: Annotated[dict, Depends(curator_only)]):
+    db.update_item(case_id, item_code, status="CANCELLED")
+    db.add_event(case_id, "item_cancelled", u["display_name"], f"Куратор убрал шаг {item_code} из плана", item_code)
+    return _hydrate(db.get_case(case_id))
+
+
+@app.post("/api/cases/{case_id}/confirm")
+def confirm_plan(case_id: str, u: Annotated[dict, Depends(curator_only)]):
+    c = db.get_case(case_id)
+    if not c:
+        raise HTTPException(404, "Кейс не найден")
+    db.confirm_all_items(case_id)
+    db.update_case(case_id, case_status="active", curator_id=u["id"], confirmed_at=datetime.now().isoformat())
+    db.add_event(case_id, "plan_confirmed", u["display_name"], "Куратор подтвердил план, он доступен родителю")
+    return _hydrate(db.get_case(case_id))
+
+
+@app.post("/api/cases/{case_id}/reject")
+def reject_plan(case_id: str, reason: str = "", u: dict = Depends(curator_only)):
+    db.update_case(case_id, case_status="interview")
+    db.add_event(case_id, "plan_rejected", u["display_name"],
+                 f"Куратор вернул план на доработку. Причина: {reason or 'не указана'}")
+    return {"ok": True}
+
+
+# ──────────────────── статусы со стороны родителя ────────────────────
+
+class StatusIn(BaseModel):
+    status: str
+    comment: str = ""
+
+
+@app.post("/api/cases/{case_id}/items/{item_code}/status")
+def set_status(case_id: str, item_code: str, body: StatusIn, u: Annotated[dict, Depends(current_user)]):
+    c = db.get_case(case_id)
+    if not c:
+        raise HTTPException(404, "Кейс не найден")
+
+    if u["role"] == "parent":
+        if c["owner_id"] != u["id"]:
+            raise HTTPException(403, "Это не ваш кейс")
+        # статус применяется сразу, но помечается как «со слов родителя»
+        db.update_item(case_id, item_code, status=body.status, parent_reported_status=body.status,
+                       confirmed_by_curator=0)
+        db.add_event(case_id, "parent_status", u["display_name"],
+                     f"Родитель отметил шаг {item_code}: {body.status}" +
+                     (f". Комментарий: {body.comment}" if body.comment else ""), item_code)
+    else:
+        db.update_item(case_id, item_code, status=body.status, parent_reported_status=None, confirmed_by_curator=1)
+        db.add_event(case_id, "curator_status", u["display_name"],
+                     f"Куратор установил статус шага {item_code}: {body.status}", item_code)
+
+    return _hydrate(db.get_case(case_id))
+
+
+@app.post("/api/cases/{case_id}/items/{item_code}/verify")
+def verify_status(case_id: str, item_code: str, u: Annotated[dict, Depends(curator_only)]):
+    db.update_item(case_id, item_code, confirmed_by_curator=1, parent_reported_status=None)
+    db.add_event(case_id, "status_verified", u["display_name"], f"Куратор подтвердил статус шага {item_code}", item_code)
+    return _hydrate(db.get_case(case_id))
+
+
+# ───────────────────────── PHQ-9 и поддержка ─────────────────────────
+
+@app.get("/api/phq9")
+def phq9_form(lang: str = "ru"):
+    return {"preamble": phq9.PREAMBLE.get(lang, phq9.PREAMBLE["ru"]),
+            "questions": [{"id": q["id"], "text": q.get(lang, q["ru"]), "critical": q.get("critical", False)}
+                          for q in phq9.QUESTIONS],
+            "options": [{"value": o["value"], "label": o.get(lang, o["ru"])} for o in phq9.OPTIONS],
+            "disclaimer": "PHQ-9 — скрининговый инструмент, не диагноз."}
+
+
+class Phq9In(BaseModel):
+    case_id: str
+    answers: list[int]
+
+
+@app.post("/api/phq9")
+def phq9_submit(body: Phq9In, u: Annotated[dict, Depends(current_user)]):
+    if len(body.answers) != 9:
+        raise HTTPException(400, "Нужно ответить на все 9 вопросов")
+    r = phq9.score(body.answers)
+    db.update_case(body.case_id, phq9_score=r["score"], phq9_severity=r["severity"])
+    db.add_event(body.case_id, "phq9_completed", u["display_name"],
+                 f"Пройден скрининг PHQ-9: {r['score']} из 27 ({r['severity']})")
+    if r["crisis_flag"]:
+        db.add_event(body.case_id, "crisis_flag", "Система",
+                     "ВНИМАНИЕ: родитель отметил пункт 9 PHQ-9. Требуется связаться с родителем.")
+    return r
+
+
+# ──────────────────────────── уведомления ────────────────────────────
+
+@app.get("/api/notifications")
+def notifications(u: Annotated[dict, Depends(current_user)]):
+    """Уведомления собираются из просрочки при каждом запросе — фоновых задач не требуется."""
+    rows = db.list_cases() if u["role"] == "curator" else db.list_cases(owner_id=u["id"])
+    out = []
+    for c in rows:
+        if c["case_status"] not in ("active", "pending_review"):
+            continue
+        h = _hydrate(c)
+        for it in h["items"]:
+            lvl = it.get("escalation_level", "NONE")
+            if lvl == "NONE":
+                continue
+            visible = (u["role"] == "curator") or lvl in ("NOTIFY_PARENT", "NOTIFY_CURATOR", "ESCALATION", "HIGH_ESCALATION")
+            if not visible:
+                continue
+            out.append({
+                "case_id": c["case_id"], "item_code": it["item_code"], "title": it["title"],
+                "days_overdue": it["days_overdue"], "level": lvl,
+                "action": it.get("escalation_action", ""), "responsible_role": it["responsible_role"],
+            })
+        if u["role"] == "curator" and c["case_status"] == "pending_review":
+            out.append({"case_id": c["case_id"], "item_code": None, "title": "План ожидает проверки",
+                        "days_overdue": 0, "level": "REVIEW", "action": "Проверить и подтвердить план",
+                        "responsible_role": "CURATOR"})
+    out.sort(key=lambda x: -x["days_overdue"])
+    return out
+
+
+@app.get("/api/events")
+def events(case_id: str | None = None, u: dict = Depends(current_user)):
+    return db.get_events(case_id)

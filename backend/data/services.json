@@ -1,0 +1,338 @@
+{
+  "_meta": {
+    "version": "1.0",
+    "note": "SERVICE CATALOG — единственный источник действий для AI. Модель обязана выбирать service_id только отсюда (ограничение enum в JSON Schema). Сроки (default_duration_days) УСЛОВНЫЕ, подлежат замене на нормативные; куратор правит срок вручную перед подтверждением плана.",
+    "deadlines_are_provisional": true
+  },
+
+  "services": [
+    {
+      "id": "PSYCHIATRIC_CONSULTATION",
+      "stage": "DIAGNOSTIC",
+      "title": { "ru": "Консультация детского врача-психиатра", "kk": "Балалар психиатрының консультациясы", "en": "Child psychiatrist consultation" },
+      "purpose": { "ru": "Нозологическая верификация диагноза по МКБ с применением шкал ADOS-2 и ADI-R.", "kk": "АХЖ бойынша диагнозды нозологиялық верификациялау (ADOS-2, ADI-R шкалалары).", "en": "Nosological diagnosis verification per ICD using ADOS-2 and ADI-R." },
+      "responsible_role": "PSYCHIATRIST",
+      "authority": "МЗ",
+      "default_duration_days": 14,
+      "default_priority": "HIGH",
+      "required_documents": ["Удостоверение личности родителя", "Свидетельство о рождении ребёнка", "Амбулаторная карта"],
+      "produces_documents": ["Заключение врача-психиатра"],
+      "prerequisites": [],
+      "age_min": 1.5, "age_max": 18
+    },
+    {
+      "id": "VKK_CONCLUSION",
+      "stage": "DIAGNOSTIC",
+      "title": { "ru": "Прохождение ВКК и оформление формы №031/у", "kk": "ДКК өту және №031/у нысанын ресімдеу", "en": "Medical advisory commission — form 031/u" },
+      "purpose": { "ru": "Врачебно-консультативная комиссия оформляет заключение по форме №031/у — базовый документ для МСЭ и ПМПК.", "kk": "ДКК №031/у нысаны бойынша қорытынды ресімдейді — МӘС және ПМПК үшін негізгі құжат.", "en": "Advisory commission issues form 031/u — the base document for disability and educational assessment." },
+      "responsible_role": "VKK",
+      "authority": "МЗ",
+      "default_duration_days": 10,
+      "default_priority": "HIGH",
+      "required_documents": ["Заключение врача-психиатра", "Амбулаторная карта"],
+      "produces_documents": ["Форма №031/у"],
+      "prerequisites": ["PSYCHIATRIC_CONSULTATION"],
+      "age_min": 1.5, "age_max": 18
+    },
+    {
+      "id": "PSYCHIATRIC_FOLLOWUP",
+      "stage": "DIAGNOSTIC",
+      "title": { "ru": "Динамическое наблюдение у психиатра", "kk": "Психиатрда динамикалық бақылау", "en": "Ongoing psychiatric follow-up" },
+      "purpose": { "ru": "Первый год после диагноза — не реже 1 раза в 3 месяца; при стабильном течении — 1–2 раза в год.", "kk": "Диагноздан кейінгі бірінші жыл — 3 айда 1 реттен сирек емес; тұрақты жағдайда — жылына 1–2 рет.", "en": "Every 3 months in the first year after diagnosis; 1–2 times a year once stable." },
+      "responsible_role": "PSYCHIATRIST",
+      "authority": "МЗ",
+      "default_duration_days": 90,
+      "default_priority": "MEDIUM",
+      "required_documents": ["Форма №031/у"],
+      "produces_documents": ["Запись о динамическом наблюдении"],
+      "prerequisites": ["PSYCHIATRIC_CONSULTATION"],
+      "recurring": true, "recurrence_days": 90,
+      "age_min": 1.5, "age_max": 18
+    },
+    {
+      "id": "MEDICATION_TITRATION_CONTROL",
+      "stage": "DIAGNOSTIC",
+      "title": { "ru": "Контроль фармакотерапии (подбор дозы)", "kk": "Фармакотерапияны бақылау (доза таңдау)", "en": "Pharmacotherapy monitoring (dose titration)" },
+      "purpose": { "ru": "При назначенной симптоматической терапии: в фазе титрации визит 1 раз в 1–2 недели, при стабильной терапии — 1 раз в 1–3 месяца.", "kk": "Симптоматикалық терапия кезінде: титрация фазасында 1–2 аптада 1 рет, тұрақты терапияда — 1–3 айда 1 рет.", "en": "During dose titration: visit every 1–2 weeks; on stable therapy every 1–3 months." },
+      "responsible_role": "PSYCHIATRIST",
+      "authority": "МЗ",
+      "default_duration_days": 14,
+      "default_priority": "HIGH",
+      "required_documents": ["Рецепт", "Результаты анализов (ОАК, БАК)"],
+      "produces_documents": ["Скорректированное назначение"],
+      "prerequisites": ["PSYCHIATRIC_CONSULTATION"],
+      "recurring": true, "recurrence_days": 14,
+      "conditional": "only_if_medication",
+      "age_min": 2, "age_max": 18
+    },
+    {
+      "id": "DISABILITY_ASSESSMENT",
+      "stage": "SOCIAL_LEGAL",
+      "title": { "ru": "Прохождение МСЭ (медико-социальная экспертиза)", "kk": "МӘС өту (медициналық-әлеуметтік сараптама)", "en": "Medical and social assessment (disability)" },
+      "purpose": { "ru": "Установление категории «ребёнок-инвалид» до 16 лет либо группы инвалидности с 16 до 18 лет. Проводится очно или проактивно на основании формы №031/у.", "kk": "16 жасқа дейін «мүгедек бала» санатын не 16–18 жаста мүгедектік тобын белгілеу.", "en": "Establishes disabled-child status (under 16) or disability group (16–18), based on form 031/u." },
+      "responsible_role": "MSE",
+      "authority": "МТСЗН",
+      "default_duration_days": 20,
+      "default_priority": "HIGH",
+      "required_documents": ["Форма №031/у", "Удостоверение личности родителя", "Свидетельство о рождении ребёнка"],
+      "produces_documents": ["Справка об инвалидности"],
+      "prerequisites": ["VKK_CONCLUSION"],
+      "age_min": 1.5, "age_max": 18
+    },
+    {
+      "id": "IPAR_APPLICATION",
+      "stage": "SOCIAL_LEGAL",
+      "title": { "ru": "Утверждение ИПАР", "kk": "ЖАОБ бекіту", "en": "Individual habilitation and rehabilitation program" },
+      "purpose": { "ru": "Разработка индивидуальной программы абилитации и реабилитации — перечня мероприятий, которые государство обязано предоставить ребёнку.", "kk": "Жеке абилитация және оңалту бағдарламасын әзірлеу.", "en": "Individual programme listing services the state must provide to the child." },
+      "responsible_role": "MSE",
+      "authority": "МТСЗН",
+      "default_duration_days": 15,
+      "default_priority": "HIGH",
+      "required_documents": ["Справка об инвалидности"],
+      "produces_documents": ["ИПАР"],
+      "prerequisites": ["DISABILITY_ASSESSMENT"],
+      "age_min": 1.5, "age_max": 18
+    },
+    {
+      "id": "DISABILITY_BENEFITS",
+      "stage": "SOCIAL_LEGAL",
+      "title": { "ru": "Оформление пособий и выплат", "kk": "Жәрдемақылар мен төлемдерді ресімдеу", "en": "Disability allowances and benefits" },
+      "purpose": { "ru": "Пособие ребёнку с инвалидностью и пособие воспитывающему родителю — через eGov.kz или ЦОН «Правительство для граждан».", "kk": "Мүгедек балаға және оны тәрбиелеушіге жәрдемақы — eGov.kz немесе ХҚКО арқылы.", "en": "Child disability allowance and caregiver allowance via eGov.kz or the citizen service centre." },
+      "responsible_role": "SOCIAL_SERVICE",
+      "authority": "МТСЗН",
+      "default_duration_days": 15,
+      "default_priority": "MEDIUM",
+      "required_documents": ["Справка об инвалидности", "Банковские реквизиты", "Удостоверение личности родителя"],
+      "produces_documents": ["Решение о назначении пособия"],
+      "prerequisites": ["DISABILITY_ASSESSMENT"],
+      "portal": "eGov.kz",
+      "age_min": 1.5, "age_max": 18
+    },
+    {
+      "id": "TSR_AND_ASSISTANT",
+      "stage": "SOCIAL_LEGAL",
+      "title": { "ru": "Заказ ТСР и услуг индивидуального помощника", "kk": "ОТҚ және жеке көмекші қызметтерін тапсырыс беру", "en": "Assistive devices and personal assistant services" },
+      "purpose": { "ru": "Технические средства реабилитации и услуги индивидуального помощника через Портал социальных услуг aleumet.egov.kz.", "kk": "Оңалтудың техникалық құралдары мен жеке көмекші қызметтері aleumet.egov.kz арқылы.", "en": "Assistive devices and personal assistant services via the social services portal." },
+      "responsible_role": "SOCIAL_SERVICE",
+      "authority": "МТСЗН",
+      "default_duration_days": 30,
+      "default_priority": "LOW",
+      "required_documents": ["ИПАР", "Справка об инвалидности"],
+      "produces_documents": ["Заявка на ТСР"],
+      "prerequisites": ["IPAR_APPLICATION"],
+      "portal": "aleumet.egov.kz",
+      "age_min": 1.5, "age_max": 18
+    },
+    {
+      "id": "TAX_PREFERENCES",
+      "stage": "SOCIAL_LEGAL",
+      "title": { "ru": "Налоговые преференции по месту работы", "kk": "Жұмыс орны бойынша салықтық преференциялар", "en": "Tax preferences at the parent's workplace" },
+      "purpose": { "ru": "Освобождение от ИПН для родителя, воспитывающего ребёнка с инвалидностью — оформляется в бухгалтерии работодателя.", "kk": "Мүгедек баланы тәрбиелеуші ата-ананы ЖТС-тен босату.", "en": "Income tax exemption for a parent raising a child with a disability." },
+      "responsible_role": "PARENT",
+      "authority": "МТСЗН",
+      "default_duration_days": 10,
+      "default_priority": "LOW",
+      "required_documents": ["Справка об инвалидности"],
+      "produces_documents": ["Заявление работодателю"],
+      "prerequisites": ["DISABILITY_ASSESSMENT"],
+      "age_min": 1.5, "age_max": 18
+    },
+    {
+      "id": "PMPC_APPLICATION",
+      "stage": "EDUCATIONAL",
+      "title": { "ru": "Прохождение ПМПК", "kk": "ПМПК өту", "en": "Psychological-medical-pedagogical commission" },
+      "purpose": { "ru": "Определение особых образовательных потребностей: образовательная программа, режим сопровождения (тьютор или педагог-ассистент) и форма обучения.", "kk": "Ерекше білім беру қажеттіліктерін анықтау: бағдарлама, сүйемелдеу режимі және оқыту нысаны.", "en": "Determines special educational needs: programme, support arrangements and form of schooling." },
+      "responsible_role": "PMPC",
+      "authority": "МПР",
+      "default_duration_days": 20,
+      "default_priority": "HIGH",
+      "required_documents": ["Форма №031/у", "Свидетельство о рождении ребёнка", "Характеристика из организации образования"],
+      "produces_documents": ["Заключение ПМПК"],
+      "prerequisites": ["VKK_CONCLUSION"],
+      "age_min": 1.5, "age_max": 18
+    },
+    {
+      "id": "EDUCATIONAL_SUPPORT",
+      "stage": "EDUCATIONAL",
+      "title": { "ru": "Организация условий по заключению ПМПК", "kk": "ПМПК қорытындысы бойынша жағдай жасау", "en": "Arranging conditions recommended by the commission" },
+      "purpose": { "ru": "Предоставление тьютора, педагога-ассистента или кабинета поддержки инклюзии — организацией образования по рекомендациям ПМПК.", "kk": "Тьютор, педагог-ассистент немесе инклюзия қолдау кабинетін ұсыну.", "en": "Provision of a tutor, teaching assistant or inclusion support room by the school." },
+      "responsible_role": "EDUCATIONAL_ORGANIZATION",
+      "authority": "МПР",
+      "default_duration_days": 30,
+      "default_priority": "HIGH",
+      "required_documents": ["Заключение ПМПК"],
+      "produces_documents": ["Приказ об организации условий"],
+      "prerequisites": ["PMPC_APPLICATION"],
+      "age_min": 2, "age_max": 18
+    },
+    {
+      "id": "PSYCHOLOGICAL_PEDAGOGICAL_SUPPORT",
+      "stage": "EDUCATIONAL",
+      "title": { "ru": "Психолого-педагогическая помощь", "kk": "Психологиялық-педагогикалық көмек", "en": "Psychological and pedagogical support" },
+      "purpose": { "ru": "Занятия с дефектологом, логопедом и психологом в кабинете психолого-педагогической коррекции.", "kk": "Дефектолог, логопед және психологпен сабақтар.", "en": "Sessions with a special educator, speech therapist and psychologist." },
+      "responsible_role": "EDUCATIONAL_ORGANIZATION",
+      "authority": "МПР",
+      "default_duration_days": 21,
+      "default_priority": "MEDIUM",
+      "required_documents": ["Заключение ПМПК"],
+      "produces_documents": ["Индивидуальный план занятий"],
+      "prerequisites": ["PMPC_APPLICATION"],
+      "age_min": 2, "age_max": 18
+    },
+    {
+      "id": "REHABILITATION_REFERRAL",
+      "stage": "REHABILITATION",
+      "title": { "ru": "Направление на реабилитацию", "kk": "Оңалтуға жолдама", "en": "Rehabilitation referral" },
+      "purpose": { "ru": "Получение направления в реабилитационный центр в рамках мероприятий ИПАР.", "kk": "ЖАОБ шеңберінде оңалту орталығына жолдама алу.", "en": "Referral to a rehabilitation centre under the individual programme." },
+      "responsible_role": "REHABILITATION_CENTER",
+      "authority": "МЗ",
+      "default_duration_days": 25,
+      "default_priority": "MEDIUM",
+      "required_documents": ["ИПАР", "Форма №031/у"],
+      "produces_documents": ["Направление на реабилитацию"],
+      "prerequisites": ["IPAR_APPLICATION"],
+      "age_min": 1.5, "age_max": 18
+    },
+    {
+      "id": "ABA_THERAPY",
+      "stage": "REHABILITATION",
+      "title": { "ru": "Поведенческая помощь (ABA)", "kk": "Мінез-құлықтық көмек (ABA)", "en": "Applied behaviour analysis (ABA)" },
+      "purpose": { "ru": "Прикладной анализ поведения: коррекция дезадаптивного поведения и освоение бытовых и социальных навыков. Доказательный метод.", "kk": "Қолданбалы мінез-құлық талдауы: дезадаптивті мінез-құлықты түзету және дағдыларды игеру.", "en": "Applied behaviour analysis for adaptive skills and behaviour — an evidence-based method." },
+      "responsible_role": "REHABILITATION_CENTER",
+      "authority": "МЗ + НПО",
+      "default_duration_days": 30,
+      "default_priority": "MEDIUM",
+      "required_documents": ["Заключение врача-психиатра"],
+      "produces_documents": ["Программа поведенческой помощи"],
+      "prerequisites": ["PSYCHIATRIC_CONSULTATION"],
+      "age_min": 1.5, "age_max": 12
+    },
+    {
+      "id": "EARLY_INTERVENTION",
+      "stage": "REHABILITATION",
+      "title": { "ru": "Раннее вмешательство (JASPER / ESDM)", "kk": "Ерте араласу (JASPER / ESDM)", "en": "Early intervention (JASPER / ESDM)" },
+      "purpose": { "ru": "Натуралистические программы: совместное внимание, игра, Денверская модель раннего вмешательства. Наиболее эффективны в раннем возрасте.", "kk": "Натуралистік бағдарламалар: бірлескен назар, ойын, Денвер моделі.", "en": "Naturalistic programmes: joint attention, play, and the Early Start Denver Model." },
+      "responsible_role": "REHABILITATION_CENTER",
+      "authority": "МЗ + НПО",
+      "default_duration_days": 30,
+      "default_priority": "HIGH",
+      "required_documents": ["Заключение врача-психиатра"],
+      "produces_documents": ["Программа раннего вмешательства"],
+      "prerequisites": ["PSYCHIATRIC_CONSULTATION"],
+      "age_min": 1.5, "age_max": 6
+    },
+    {
+      "id": "SPEECH_AND_OT",
+      "stage": "REHABILITATION",
+      "title": { "ru": "Логопед, дефектолог, эрготерапевт", "kk": "Логопед, дефектолог, эрготерапевт", "en": "Speech therapy, special education, occupational therapy" },
+      "purpose": { "ru": "Междисциплинарные занятия: речь, бытовая автономия, сенсорная интеграция.", "kk": "Пәнаралық сабақтар: сөйлеу, тұрмыстық дербестік, сенсорлық интеграция.", "en": "Multidisciplinary sessions: speech, daily autonomy, sensory integration." },
+      "responsible_role": "REHABILITATION_CENTER",
+      "authority": "МЗ + МПР",
+      "default_duration_days": 21,
+      "default_priority": "MEDIUM",
+      "required_documents": ["Направление на реабилитацию"],
+      "produces_documents": ["План занятий со специалистами"],
+      "prerequisites": [],
+      "age_min": 2, "age_max": 18
+    },
+    {
+      "id": "PARENT_SUPPORT",
+      "stage": "REHABILITATION",
+      "title": { "ru": "Поддержка для родителей", "kk": "Ата-аналарға қолдау", "en": "Support for parents" },
+      "purpose": { "ru": "Психотерапия для взрослых и группы равной поддержки. Фазы депрессии и выгорания у родителя напрямую влияют на маршрут ребёнка.", "kk": "Ересектерге психотерапия және тең қолдау топтары.", "en": "Therapy for adults and peer support groups — parental burnout directly affects the child's route." },
+      "responsible_role": "SOCIAL_SERVICE",
+      "authority": "МЗ + НПО",
+      "default_duration_days": 14,
+      "default_priority": "MEDIUM",
+      "required_documents": [],
+      "produces_documents": [],
+      "prerequisites": [],
+      "for_parent": true,
+      "age_min": 0, "age_max": 18
+    },
+    {
+      "id": "VOCATIONAL_TRAINING",
+      "stage": "VOCATIONAL",
+      "title": { "ru": "Предпрофессиональная подготовка (УПК, колледж)", "kk": "Кәсіпалды даярлық (ОӨК, колледж)", "en": "Pre-vocational training" },
+      "purpose": { "ru": "Обучение прикладным навыкам в учебно-производственных комбинатах и колледжах: швейное дело, кулинария, IT, озеленение.", "kk": "Оқу-өндірістік комбинаттарда қолданбалы дағдыларға оқыту.", "en": "Applied skills training at vocational centres and colleges." },
+      "responsible_role": "EDUCATIONAL_ORGANIZATION",
+      "authority": "МПР",
+      "default_duration_days": 45,
+      "default_priority": "MEDIUM",
+      "required_documents": ["Заключение ПМПК"],
+      "produces_documents": ["Договор об обучении"],
+      "prerequisites": ["PMPC_APPLICATION"],
+      "age_min": 14, "age_max": 18
+    },
+    {
+      "id": "SUPPORTED_EMPLOYMENT",
+      "stage": "VOCATIONAL",
+      "title": { "ru": "Сопровождаемое трудоустройство", "kk": "Сүйемелденетін жұмысқа орналастыру", "en": "Supported employment" },
+      "purpose": { "ru": "Переход по цепочке: школа или КПИ → колледж → производственная практика → сопровождаемое рабочее место.", "kk": "Мектеп → колледж → өндірістік практика → сүйемелденетін жұмыс орны.", "en": "Pathway from school through college and work placement to a supported workplace." },
+      "responsible_role": "SOCIAL_SERVICE",
+      "authority": "МТСЗН",
+      "default_duration_days": 60,
+      "default_priority": "MEDIUM",
+      "required_documents": ["Диплом или сертификат УПК", "Справка об инвалидности"],
+      "produces_documents": ["Трудовой договор"],
+      "prerequisites": ["VOCATIONAL_TRAINING"],
+      "age_min": 16, "age_max": 18
+    },
+    {
+      "id": "ADULT_DISABILITY_TRANSITION",
+      "stage": "VOCATIONAL",
+      "title": { "ru": "Переход 18+: переосвидетельствование МСЭ", "kk": "18+ ауысу: МӘС қайта куәландыру", "en": "Transition to adult services at 18+" },
+      "purpose": { "ru": "Оформление взрослой группы инвалидности, подбор программ дневной занятости и центров сопровождаемого проживания.", "kk": "Ересектер мүгедектік тобын ресімдеу, күндізгі жұмыспен қамту бағдарламалары.", "en": "Adult disability status, day occupation programmes and supported living." },
+      "responsible_role": "MSE",
+      "authority": "МТСЗН",
+      "default_duration_days": 30,
+      "default_priority": "HIGH",
+      "required_documents": ["Форма №031/у", "Справка об инвалидности"],
+      "produces_documents": ["Справка о взрослой группе инвалидности"],
+      "prerequisites": ["DISABILITY_ASSESSMENT"],
+      "age_min": 17, "age_max": 18
+    }
+  ],
+
+  "control_dates": {
+    "_note": "Контрольные административные даты из ТЗ — порождают напоминания",
+    "BEFORE_MSE_RENEWAL": { "trigger": "за 1–2 месяца до окончания срока инвалидности", "lead_days": 45, "service_id": "VKK_CONCLUSION", "reason": "Обновить форму №031/у перед переосвидетельствованием МСЭ" },
+    "BEFORE_PMPC_SCHOOL": { "trigger": "при переходе на новую образовательную ступень", "lead_days": 60, "service_id": "PMPC_APPLICATION", "reason": "Подготовить актуальную психолого-педагогическую характеристику" }
+  },
+
+  "regions": {
+    "ASTANA": {
+      "title": { "ru": "Астана", "kk": "Астана", "en": "Astana" },
+      "available_services": "all",
+      "facilities": {
+        "PMPC_APPLICATION": [{ "name": "ПМПК №1 и №2 г. Астана", "portal": "birge.astana.kz", "note": "Запись онлайн" }],
+        "ABA_THERAPY": [{ "name": "Центр «Асыл Мирас»", "note": "Курсы ABA и JASPER" }],
+        "EARLY_INTERVENTION": [{ "name": "Центр «Асыл Мирас»", "note": "JASPER, раннее вмешательство" }],
+        "REHABILITATION_REFERRAL": [{ "name": "Национальный центр детской реабилитации (НЦДР)", "note": "Через Портал бюро госпитализации" }],
+        "EDUCATIONAL_SUPPORT": [{ "name": "Кабинеты поддержки инклюзии фонда «Bolashak Charity»" }],
+        "PSYCHIATRIC_CONSULTATION": [{ "name": "Центр психического здоровья г. Астана" }]
+      }
+    },
+    "KARAGANDA": {
+      "title": { "ru": "Караганда и Карагандинская область", "kk": "Қарағанды және Қарағанды облысы", "en": "Karaganda and Karaganda region" },
+      "available_services": "all",
+      "facilities": {
+        "PSYCHIATRIC_CONSULTATION": [{ "name": "Областной центр психического здоровья, г. Караганда" }],
+        "PMPC_APPLICATION": [{ "name": "ПМПК г. Караганда", "note": "Запись через управление образования области" }],
+        "REHABILITATION_REFERRAL": [{ "name": "Областной реабилитационный центр для детей" }],
+        "ABA_THERAPY": [{ "name": "Центр «Асыл Мирас», г. Караганда" }]
+      },
+      "note": "В районах области часть услуг доступна только в областном центре — возможен блокер SERVICE_UNAVAILABLE."
+    },
+    "ALMATY": {
+      "title": { "ru": "Алматы", "kk": "Алматы", "en": "Almaty" },
+      "available_services": "all",
+      "facilities": {
+        "PSYCHIATRIC_CONSULTATION": [{ "name": "Центр психического здоровья г. Алматы" }],
+        "PMPC_APPLICATION": [{ "name": "ПМПК г. Алматы", "note": "По районам города" }],
+        "ABA_THERAPY": [{ "name": "Центр «Асыл Мирас», г. Алматы" }],
+        "REHABILITATION_REFERRAL": [{ "name": "Городской реабилитационный центр" }]
+      }
+    }
+  }
+}
