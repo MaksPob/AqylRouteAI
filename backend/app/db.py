@@ -192,15 +192,42 @@ def update_case(case_id: str, **fields) -> None:
         c.execute(f"UPDATE cases SET {sets} WHERE case_id=?", (*fields.values(), case_id))
 
 
-def list_cases(owner_id: int | None = None) -> list[dict]:
+def list_cases(owner_id: int | None = None, include_empty: bool = False) -> list[dict]:
+    """
+    Кейс, где интервью открыли и бросили на первом вопросе, ничего не значит
+    ни для куратора, ни для родителя — по умолчанию такие не показываем.
+    """
     q = "SELECT * FROM cases"
-    args: tuple = ()
+    where, args = [], []
     if owner_id is not None:
-        q += " WHERE owner_id=?"
-        args = (owner_id,)
+        where.append("owner_id=?")
+        args.append(owner_id)
+    if not include_empty:
+        where.append(
+            "(case_status != 'interview' "
+            "OR (SELECT COUNT(*) FROM interview_answers a WHERE a.case_id = cases.case_id) > 0)"
+        )
+    if where:
+        q += " WHERE " + " AND ".join(where)
     q += " ORDER BY created_at DESC"
     with conn() as c:
-        return [dict(r) for r in c.execute(q, args).fetchall()]
+        return [dict(r) for r in c.execute(q, tuple(args)).fetchall()]
+
+
+def purge_abandoned(older_than_hours: int = 6) -> int:
+    """Удаляет давно брошенные пустые интервью. Вызывается при старте."""
+    from datetime import datetime, timedelta
+    cutoff = (datetime.now() - timedelta(hours=older_than_hours)).isoformat()
+    with conn() as c:
+        rows = c.execute(
+            "SELECT case_id FROM cases WHERE case_status='interview' AND created_at < ? "
+            "AND (SELECT COUNT(*) FROM interview_answers a WHERE a.case_id = cases.case_id) = 0",
+            (cutoff,),
+        ).fetchall()
+        for r in rows:
+            c.execute("DELETE FROM events WHERE case_id=?", (r["case_id"],))
+            c.execute("DELETE FROM cases WHERE case_id=?", (r["case_id"],))
+        return len(rows)
 
 
 # ──────────────────────────── интервью ────────────────────────────

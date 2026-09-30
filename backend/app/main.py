@@ -35,6 +35,9 @@ def _startup() -> None:
     db.init()
     from .seed import ensure_seed
     ensure_seed()
+    n = db.purge_abandoned()
+    if n:
+        print(f"[db] удалено брошенных пустых интервью: {n}")
 
 
 # ─────────────────────────── авторизация ───────────────────────────
