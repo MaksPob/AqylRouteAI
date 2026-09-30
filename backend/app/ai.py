@@ -31,6 +31,13 @@ MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 MIN_QUESTIONS = 8
 MAX_QUESTIONS = 12
 
+# Как звучат вопросы:
+#   "adaptive"  — модель переформулирует канонический вопрос под уже сказанное
+#                 (тема и коды ответов остаются прежними);
+#   "canonical" — вопрос звучит ровно так, как записан в справочнике.
+# Переключается в .env: INTERVIEW_MODE=canonical
+INTERVIEW_MODE = os.getenv("INTERVIEW_MODE", "adaptive").strip().lower()
+
 
 def _client():
     key = os.getenv("OPENAI_API_KEY", "").strip()
@@ -141,15 +148,26 @@ def _question_ids() -> list[str]:
     return [q["question_id"] for q in _demo_questions("ru")]
 
 
-def _decision_model():
+class RephrasedOption(BaseModel):
+    """
+    Вариант ответа после переформулировки. value остаётся прежним:
+    на этих кодах держится разбор состояния кейса, менять их нельзя.
+    """
+    value: str = Field(description="Код варианта — скопируй БЕЗ ИЗМЕНЕНИЙ из исходного списка")
+    label: str = Field(description="Текст варианта для родителя; можно смягчить формулировку")
+
+
+def _decision_model(rephrase: bool):
     """
     Схема решения по интервью. next_question_id ограничен каноническим
     списком ТЗ, поэтому модель не может придумать свой вопрос или задать
     несколько вопросов об одном и том же.
+
+    При rephrase модель дополнительно формулирует тот же вопрос живым языком
+    с учётом уже сказанного. Тема при этом остаётся канонической.
     """
     ids = tuple(_question_ids()) + ("NONE",)
-    return create_model(
-        "InterviewDecision",
+    fields = dict(
         is_complete=(bool, Field(description="true, когда собрано достаточно для построения плана")),
         next_question_id=(Literal[ids], Field(  # type: ignore[valid-type]
             description="Код следующего вопроса из списка, либо NONE если интервью завершено")),
@@ -163,6 +181,22 @@ def _decision_model():
             "Пояснение простыми словами, если из последнего ответа видно, что родитель "
             "не понимает термин. Иначе пустая строка"))),
     )
+    if rephrase:
+        fields.update(
+            question_text=(str, Field(description=(
+                "ОБЯЗАТЕЛЬНО заполни. Тот же вопрос, обращённый к этой конкретной семье "
+                "с учётом уже сказанного. СМЫСЛ и ТЕМА совпадают с каноническим вопросом — "
+                "это переформулировка, а не новый вопрос. Одно предложение, живым языком, "
+                "без канцелярита и без терминов без расшифровки"))),
+            why_text=(str, Field(description=(
+                "ОБЯЗАТЕЛЬНО заполни. Одно предложение: зачем этот вопрос нужен именно "
+                "этой семье, со ссылкой на то, что она уже рассказала"))),
+            options=(list[RephrasedOption], Field(description=(
+                "ОБЯЗАТЕЛЬНО перечисли ВСЕ варианты исходного вопроса: те же value, "
+                "человечные label. Ни одного не пропусти и не добавь. "
+                "Для вопроса без вариантов — пустой список"))),
+        )
+    return create_model("InterviewDecision", **fields)
 
 
 DECISION_SYSTEM = """Ты ведёшь адаптивное интервью с родителем ребёнка с расстройством аутистического спектра в Казахстане.
@@ -185,6 +219,30 @@ DECISION_SYSTEM = """Ты ведёшь адаптивное интервью с 
 6. Если из ответа видно, что родитель не понимает термин, объясни его в clarification
    простыми словами. Диагноз при этом не обсуждается.
 """ + SAFETY
+
+REPHRASE_RULES = """
+
+ФОРМУЛИРОВКА ВОПРОСА (question_text, why_text, options):
+Канонический вопрос задаёт ТЕМУ. Ты формулируешь его живым языком, связывая
+с тем, что родитель уже рассказал. Правила:
+- Смысл не меняется. «Какие документы у вас есть» нельзя превратить
+  в «расскажите о вашей ситуации».
+- Опирайся на сказанное: если родитель назвал возраст 6 лет и скоро школа —
+  вопрос про ПМПК уместно связать с поступлением.
+- Коды вариантов (value) копируй БУКВАЛЬНО. Менять их запрещено: на них
+  держится вся дальнейшая логика. Смягчать можно только видимый текст (label).
+- Перечисляй ВСЕ варианты исходного вопроса — ни одного не убирай и не добавляй.
+- Одно предложение. Без канцелярита, без терминов без расшифровки.
+- Поля question_text, why_text и options заполняй ВСЕГДА, а не только когда
+  видишь необходимость. Родитель должен слышать живого собеседника, который
+  помнит предыдущие ответы, а не анкету.
+
+Пример. Канонический вопрос: «Проходили ли вы ПМПК?»
+Родитель до этого сказал, что ребёнку 6 лет и он ходит в обычный детский сад.
+Хорошая формулировка: «Аминe скоро в школу — проходили ли вы уже ПМПК,
+где определяют, какие условия нужны ребёнку для учёбы?»
+Плохая: «Расскажите о вашем образовательном маршруте» — тема подменена.
+"""
 
 
 # ───────────────── что семья уже прошла (общая логика) ─────────────────
@@ -335,11 +393,14 @@ def next_question(history: list[dict], lang: str = "ru") -> tuple[InterviewStep,
         for qid in questions
     )
 
+    rephrase = INTERVIEW_MODE == "adaptive"
+
     try:
-        Decision = _decision_model()
+        Decision = _decision_model(rephrase)
         r = client.responses.parse(
             model=MODEL,
-            instructions=DECISION_SYSTEM + f"\n\nЯзык общения: {lang}.",
+            instructions=DECISION_SYSTEM + (REPHRASE_RULES if rephrase else "")
+                         + f"\n\nЯзык общения: {lang}.",
             input=(f"СПИСОК ВОПРОСОВ:\n{catalogue}\n\n"
                    f"ХОД ИНТЕРВЬЮ:\n{transcript}\n\n"
                    f"Ещё не заданы: {', '.join(remaining)}.\n"
@@ -358,6 +419,29 @@ def next_question(history: list[dict], lang: str = "ru") -> tuple[InterviewStep,
             qid = remaining[0]
 
         q = dict(questions[qid])
+
+        # Переформулировка принимается только если она не ломает разбор ответов:
+        # набор кодов вариантов обязан совпасть с каноническим до единого значения.
+        if rephrase:
+            text = (getattr(d, "question_text", "") or "").strip()
+            if text:
+                q["text"] = text
+            why = (getattr(d, "why_text", "") or "").strip()
+            if why:
+                q["why"] = why
+
+            opts = getattr(d, "options", None) or []
+            if q["options"]:
+                canon = {o["value"] for o in q["options"]}
+                got = {o.value for o in opts}
+                if opts and got == canon:
+                    labels = {o.value: o.label.strip() for o in opts if o.label.strip()}
+                    q["options"] = [{"value": o["value"], "label": labels.get(o["value"], o["label"])}
+                                    for o in q["options"]]      # порядок сохраняем канонический
+                elif opts:
+                    print(f"[ai] переформулировка вариантов отклонена для {qid}: "
+                          f"лишние {got - canon}, потерянные {canon - got}")
+
         # пояснение от модели дополняет заготовленное, а не заменяет его
         if d.clarification:
             q["clarification"] = d.clarification
