@@ -14,8 +14,13 @@ const DEMO = [
 
 export default function LoginPage() {
   const [lang, setLang] = useLang();
+  const [mode, setMode] = useState<"login" | "register">("login");
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [region, setRegion] = useState("ASTANA");
+  const [role, setRole] = useState<"parent" | "curator">("parent");
+  const [invite, setInvite] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [engine, setEngine] = useState<string>("");
@@ -40,6 +45,23 @@ export default function LoginPage() {
       router.push(r.user.role === "curator" ? "/curator" : "/plan");
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Не удалось войти");
+      setBusy(false);
+    }
+  };
+
+  const signUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErr("");
+    setBusy(true);
+    try {
+      const r = await api.register({
+        login, password, display_name: name, region, role,
+        invite_code: role === "curator" ? invite : undefined,
+      });
+      token.set(r.token);
+      router.push(r.user.role === "curator" ? "/curator" : "/plan");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Не удалось создать учётную запись");
       setBusy(false);
     }
   };
@@ -87,9 +109,89 @@ export default function LoginPage() {
           </section>
 
           {/* Правая колонка — вход */}
-          <section className="card p-6 sm:p-7">
-            <h2 className="mb-1">{t("login", lang)}</h2>
-            <p className="mb-6 text-[0.88rem]" style={{ color: "var(--ink-muted)" }}>
+          <section className="card p-5 sm:p-7">
+            <div className="mb-5 inline-flex w-full rounded-[var(--radius-s)] p-1"
+                 style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+              {(["login", "register"] as const).map((m) => (
+                <button key={m} onClick={() => { setMode(m); setErr(""); }} aria-pressed={mode === m}
+                        className="flex-1 rounded-[8px] px-3 py-2 text-[0.88rem] font-semibold transition-colors"
+                        style={mode === m
+                          ? { background: "var(--surface)", color: "var(--ink)", boxShadow: "var(--shadow)" }
+                          : { color: "var(--ink-muted)" }}>
+                  {t(m === "login" ? "login" : "register", lang)}
+                </button>
+              ))}
+            </div>
+
+            {mode === "register" ? (
+              <form onSubmit={signUp} className="grid gap-3.5">
+                <label className="grid gap-1.5 text-[0.85rem] font-medium">
+                  {t("yourName", lang)}
+                  <input className="field" value={name} onChange={(e) => setName(e.target.value)}
+                         placeholder="Айгуль Сериковна" autoComplete="name" required />
+                </label>
+
+                <label className="grid gap-1.5 text-[0.85rem] font-medium">
+                  {t("loginField", lang)}
+                  <input className="field" value={login} onChange={(e) => setLogin(e.target.value)}
+                         placeholder="aigul" autoComplete="username" required minLength={3} />
+                  <span className="text-[0.78rem] font-normal" style={{ color: "var(--ink-muted)" }}>
+                    {t("loginHint", lang)}
+                  </span>
+                </label>
+
+                <label className="grid gap-1.5 text-[0.85rem] font-medium">
+                  {t("password", lang)}
+                  <input className="field" type="password" value={password}
+                         onChange={(e) => setPassword(e.target.value)} autoComplete="new-password"
+                         required minLength={6} />
+                  <span className="text-[0.78rem] font-normal" style={{ color: "var(--ink-muted)" }}>
+                    {t("passwordHint", lang)}
+                  </span>
+                </label>
+
+                <label className="grid gap-1.5 text-[0.85rem] font-medium">
+                  {t("yourRegion", lang)}
+                  <select className="field" value={region} onChange={(e) => setRegion(e.target.value)}>
+                    <option value="ASTANA">Астана</option>
+                    <option value="KARAGANDA">Караганда и Карагандинская область</option>
+                    <option value="ALMATY">Алматы</option>
+                  </select>
+                </label>
+
+                <fieldset className="grid gap-1.5">
+                  <legend className="mb-1.5 text-[0.85rem] font-medium">{t("whoAreYou", lang)}</legend>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(["parent", "curator"] as const).map((r) => (
+                      <button key={r} type="button" onClick={() => setRole(r)} aria-pressed={role === r}
+                              className="rounded-[var(--radius-s)] border px-3 py-2.5 text-[0.88rem] font-medium transition-colors"
+                              style={role === r
+                                ? { borderColor: "var(--brand)", background: "var(--brand-soft)", color: "var(--brand-ink)" }
+                                : { borderColor: "var(--border-strong)", color: "var(--ink-2)" }}>
+                        {t(r === "parent" ? "parentRole" : "curatorRole", lang)}
+                      </button>
+                    ))}
+                  </div>
+                </fieldset>
+
+                {role === "curator" && (
+                  <label className="grid gap-1.5 text-[0.85rem] font-medium">
+                    {t("inviteCode", lang)}
+                    <input className="field" value={invite} onChange={(e) => setInvite(e.target.value)}
+                           placeholder="KMU-2026" required />
+                    <span className="text-[0.78rem] font-normal leading-snug" style={{ color: "var(--ink-muted)" }}>
+                      {t("inviteHint", lang)}
+                    </span>
+                  </label>
+                )}
+
+                <button className="btn btn-primary mt-1" disabled={busy || !login || !password || !name}>
+                  {t("createAccount", lang)}
+                </button>
+              </form>
+            ) : (
+            <>
+            <p className="mb-5 text-[0.88rem]" style={{ color: "var(--ink-muted)" }}>
               Выберите учётную запись ниже или введите данные вручную
             </p>
 
@@ -131,6 +233,8 @@ export default function LoginPage() {
                 <button className="btn btn-primary mt-1" disabled={busy || !login}>{t("signIn", lang)}</button>
               </form>
             </details>
+            </>
+            )}
 
             {err && (
               <p className="mt-4 rounded-[var(--radius-s)] px-3 py-2 text-[0.86rem]"

@@ -111,6 +111,8 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
 export const api = {
   login: (login: string, password: string) =>
     call<{ token: string; user: User }>("/api/auth/login", { method: "POST", body: JSON.stringify({ login, password }) }),
+  register: (body: { login: string; password: string; display_name: string; region: string; role: string; invite_code?: string }) =>
+    call<{ token: string; user: User }>("/api/auth/register", { method: "POST", body: JSON.stringify(body) }),
   me: () => call<User>("/api/auth/me"),
   logout: () => call<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
 

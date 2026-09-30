@@ -62,6 +62,51 @@ class LoginIn(BaseModel):
     password: str
 
 
+class RegisterIn(BaseModel):
+    login: str
+    password: str
+    display_name: str
+    region: str = "ASTANA"
+    role: str = "parent"
+    invite_code: str = ""
+
+
+# Куратор видит кейсы всех семей, поэтому эта роль выдаётся по коду,
+# а не свободной регистрацией. Код задаётся в .env, значение по умолчанию —
+# только для демонстрации.
+CURATOR_INVITE = os.getenv("CURATOR_INVITE_CODE", "KMU-2026")
+
+
+@app.post("/api/auth/register")
+def register(body: RegisterIn):
+    login = body.login.strip().lower()
+
+    if len(login) < 3 or not all(c.isalnum() or c in "._-" for c in login):
+        raise HTTPException(400, "Логин: минимум 3 символа, латиница, цифры, точка, дефис или подчёркивание")
+    if len(body.password) < 6:
+        raise HTTPException(400, "Пароль должен быть не короче 6 символов")
+    if not body.display_name.strip():
+        raise HTTPException(400, "Укажите, как к вам обращаться")
+    if body.region not in ("ASTANA", "KARAGANDA", "ALMATY"):
+        raise HTTPException(400, "Выберите регион из списка")
+    if body.role not in ("parent", "curator"):
+        raise HTTPException(400, "Недопустимая роль")
+    if body.role == "curator" and body.invite_code.strip() != CURATOR_INVITE:
+        raise HTTPException(403, "Неверный код куратора. Роль куратора выдаётся организацией")
+
+    try:
+        db.create_user(login, body.password, body.role, body.display_name.strip(), body.region)
+    except Exception as e:                                   # noqa: BLE001
+        if "UNIQUE" in str(e).upper():
+            raise HTTPException(409, "Такой логин уже занят, выберите другой") from e
+        raise HTTPException(500, "Не удалось создать учётную запись") from e
+
+    r = db.authenticate(login, body.password)
+    if not r:
+        raise HTTPException(500, "Учётная запись создана, но войти не удалось")
+    return r
+
+
 @app.post("/api/auth/login")
 def login(body: LoginIn):
     r = db.authenticate(body.login, body.password)
