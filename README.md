@@ -87,12 +87,38 @@ cd AqylRouteAI
 cd ~/Desktop/AqylRouteAI
 
 python3 -m venv backend/.venv
-backend/.venv/bin/pip install fastapi uvicorn[standard] openai pydantic python-multipart
+backend/.venv/bin/pip install -r backend/requirements.txt
 
 cd frontend && npm install
 ```
 
 Требуется **Python 3.11+** и **Node.js 20+**.
+
+### Windows
+
+`start.sh` — bash-скрипт, в PowerShell он не работает. Либо запускать через
+**Git Bash**, либо поднять сервисы вручную в двух терминалах.
+
+Терминал 1, бэкенд:
+
+```powershell
+cd backend
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
+```
+
+Терминал 2, фронтенд:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Если `python` не найден — попробуйте `py` вместо него. Форма `python.exe -m uvicorn`
+выбрана намеренно: она работает и в тех случаях, когда обёртка `uvicorn.exe`
+не создалась.
 
 ---
 

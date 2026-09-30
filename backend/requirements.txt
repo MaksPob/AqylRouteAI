@@ -1,0 +1,8 @@
+# Зависимости бэкенда AqylRoute AI
+# Установка:  python -m pip install -r requirements.txt
+
+fastapi>=0.115
+uvicorn[standard]>=0.30
+openai>=1.50
+pydantic>=2.9
+python-multipart>=0.0.9
