@@ -27,7 +27,7 @@ function StepCard({ item, lang, onStatus, busy }: {
             : item.status === "BLOCKED" ? "var(--st-blocked)"
             : item.priority === "HIGH" ? "var(--st-todo)" : "var(--border-strong)" }} />
 
-        <div className="min-w-0 flex-1 p-5">
+        <div className="min-w-0 flex-1 p-4 sm:p-5">
           <div className="mb-2.5 flex flex-wrap items-center gap-2">
             <StatusBadge status={item.status} lang={lang} size="sm" />
             <PriorityMark priority={item.priority} lang={lang} />
@@ -134,19 +134,19 @@ function StepCard({ item, lang, onStatus, busy }: {
 
           {/* родитель ведёт статус сам, куратор потом подтверждает */}
           {item.status !== "DONE" && item.status !== "CANCELLED" && (
-            <div className="mt-4 flex flex-wrap gap-2 border-t pt-4" style={{ borderColor: "var(--border)" }}>
-              <button className="btn btn-ghost !py-2 !text-[0.86rem]" disabled={busy}
+            <div className="mt-4 grid gap-2 border-t pt-4 sm:flex sm:flex-wrap" style={{ borderColor: "var(--border)" }}>
+              <button className="btn btn-ghost !text-[0.88rem]" disabled={busy}
                       onClick={() => onStatus(item.item_code, "DONE")}>
                 <Icon.check size={15} /> {t("markDone", lang)}
               </button>
               {item.status !== "IN_PROGRESS" && (
-                <button className="btn btn-quiet !text-[0.86rem]" disabled={busy}
+                <button className="btn btn-quiet !text-[0.88rem]" disabled={busy}
                         onClick={() => onStatus(item.item_code, "IN_PROGRESS")}>
                   {t("markProgress", lang)}
                 </button>
               )}
               {item.status !== "WAITING" && (
-                <button className="btn btn-quiet !text-[0.86rem]" disabled={busy}
+                <button className="btn btn-quiet !text-[0.88rem]" disabled={busy}
                         onClick={() => onStatus(item.item_code, "WAITING")}>
                   {t("markWaiting", lang)}
                 </button>
@@ -170,6 +170,7 @@ function PlanInner() {
   const [detail, setDetail] = useState<CaseDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [showAll, setShowAll] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -197,7 +198,7 @@ function PlanInner() {
     return (
       <main className="min-h-screen pb-16">
         <Header lang={lang} setLang={setLang} title={t("myCases", lang)} />
-        <div className="mx-auto max-w-3xl px-4 pt-7 sm:px-6">
+        <div className="mx-auto max-w-3xl px-4 pt-5 sm:px-6 sm:pt-7">
           <button className="btn btn-primary mb-6 w-full sm:w-auto" onClick={() => router.push("/interview")}>
             <Icon.play size={17} /> {t("newCase", lang)}
           </button>
@@ -251,6 +252,13 @@ function PlanInner() {
   const done = visible.filter((i) => i.status === "DONE");
   const urgentCount = visible.filter((i) => i.status === "OVERDUE" || i.status === "BLOCKED").length;
 
+  // ТЗ: «Сейчас нужно сделать 3 вещи». Родителю в стрессе список из десяти
+  // пунктов читается как «всё сразу и невозможно», поэтому показываем
+  // первые три (они уже отсортированы по приоритету и сроку), остальное — по запросу.
+  const FOCUS = 3;
+  const focus = showAll ? todo : todo.slice(0, FOCUS);
+  const rest = todo.length - focus.length;
+
   return (
     <main className="min-h-screen pb-20">
       <Header lang={lang} setLang={setLang}
@@ -258,7 +266,7 @@ function PlanInner() {
               subtitle={`${localName(REGION_NAMES, detail.region, lang)} · ${detail.case_id}`}
               back={() => router.push("/plan")} />
 
-      <div className="mx-auto max-w-3xl px-4 pt-7 sm:px-6">
+      <div className="mx-auto max-w-3xl px-4 pt-5 sm:px-6 sm:pt-7">
         {detail.pending_notice ? (
           <div className="card p-8 text-center">
             <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full"
@@ -271,8 +279,8 @@ function PlanInner() {
         ) : (
           <>
             {detail.summary && (
-              <section className="card mb-6 p-6">
-                <p className="text-[1.03rem] leading-relaxed">{detail.summary}</p>
+              <section className="card mb-6 p-5 sm:p-6">
+                <p className="text-[1.01rem] leading-relaxed sm:text-[1.03rem]">{detail.summary}</p>
                 {urgentCount > 0 && (
                   <p className="mt-4 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[0.86rem] font-semibold"
                      style={{ background: "var(--st-overdue-bg)", color: "var(--st-overdue)" }}>
@@ -284,7 +292,7 @@ function PlanInner() {
             )}
 
             {detail.parent_support_note && (
-              <section className="card mb-6 p-6" style={{ borderColor: "var(--brand)" }}>
+              <section className="card mb-6 p-5 sm:p-6" style={{ borderColor: "var(--brand)" }}>
                 <h3 className="mb-2 inline-flex items-center gap-2" style={{ color: "var(--brand-ink)" }}>
                   <Icon.heart size={18} /> {t("supportTitle", lang)}
                 </h3>
@@ -295,12 +303,31 @@ function PlanInner() {
 
             {todo.length > 0 && (
               <>
-                <h2 className="mb-3 mt-2">Сейчас нужно сделать</h2>
-                <div className="mb-8 grid gap-3">
-                  {todo.map((i) => (
+                <h2 className="mb-1 mt-2">
+                  {todo.length <= FOCUS || showAll
+                    ? "Сейчас нужно сделать"
+                    : `Сейчас нужно сделать ${FOCUS} вещи`}
+                </h2>
+                {!showAll && rest > 0 && (
+                  <p className="mb-3 text-[0.88rem]" style={{ color: "var(--ink-muted)" }}>
+                    Остальное подождёт — эти шаги идут первыми по срокам и важности.
+                  </p>
+                )}
+                <div className="mb-4 grid gap-3">
+                  {focus.map((i) => (
                     <StepCard key={i.item_code} item={i} lang={lang} onStatus={setStatus} busy={busy} />
                   ))}
                 </div>
+                {rest > 0 && (
+                  <button className="btn btn-ghost mb-8 w-full" onClick={() => setShowAll(true)}>
+                    Показать остальные шаги — {rest}
+                  </button>
+                )}
+                {showAll && todo.length > FOCUS && (
+                  <button className="btn btn-quiet mb-8 w-full" onClick={() => setShowAll(false)}>
+                    Свернуть до главного
+                  </button>
+                )}
               </>
             )}
 
@@ -318,7 +345,7 @@ function PlanInner() {
             )}
 
             {!detail.parent_support_note && (
-              <section className="card mb-6 p-6">
+              <section className="card mb-6 p-5 sm:p-6">
                 <h3 className="mb-2 inline-flex items-center gap-2"><Icon.heart size={18} /> {t("supportTitle", lang)}</h3>
                 <p className="mb-4 text-[0.93rem]" style={{ color: "var(--ink-2)" }}>
                   Маршрут ребёнка зависит и от вашего состояния. Если чувствуете, что сил меньше — это важно заметить вовремя.

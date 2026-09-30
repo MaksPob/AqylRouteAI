@@ -79,9 +79,9 @@ export default function CuratorDashboard() {
                 </span>
               ) : undefined} />
 
-      <div className="mx-auto max-w-6xl px-4 pt-7 sm:px-6">
+      <div className="mx-auto max-w-6xl px-4 pt-5 sm:px-6 sm:pt-7">
         {/* сводка */}
-        <div className="mb-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="scroll-row mb-7">
           <Tile n={totals.review} label={t("pendingReview", lang)} color="var(--st-waiting)" bg="var(--st-waiting-bg)"
                 icon={Icon.clock} onClick={() => setFilter(filter === "review" ? "all" : "review")} active={filter === "review"} />
           <Tile n={totals.overdue} label={t("stOVERDUE", lang)} color="var(--st-overdue)" bg="var(--st-overdue-bg)"
@@ -107,7 +107,7 @@ export default function CuratorDashboard() {
                 return (
                   <li key={c.case_id}>
                     <button onClick={() => router.push(`/curator/case?id=${c.case_id}`)}
-                            className="card w-full p-5 text-left transition-shadow hover:shadow-[var(--shadow-l)]"
+                            className="card w-full p-4 text-left transition-shadow hover:shadow-[var(--shadow-l)] sm:p-5"
                             style={urgent ? { borderColor: "var(--st-overdue)" } : undefined}>
                       <div className="mb-2 flex flex-wrap items-center gap-2">
                         <span className="font-semibold">{c.child_name || "Без имени"}</span>

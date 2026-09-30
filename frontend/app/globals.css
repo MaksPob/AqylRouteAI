@@ -85,6 +85,8 @@ html, body {
 
 body {
   margin: 0;
+  /* iOS увеличивает страницу при фокусе на поле мельче 16px — держим базу 16 */
+  -webkit-text-size-adjust: 100%;
   background: var(--bg);
   color: var(--ink);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -103,6 +105,13 @@ p  { margin: 0; }
 
 button, input, select, textarea { font: inherit; color: inherit; }
 
+/* Палец точнее мыши не становится: минимальная зона нажатия 44px */
+button, [role="button"], select, summary, label:has(input[type="checkbox"]) {
+  min-height: 44px;
+  touch-action: manipulation;
+}
+button.btn-quiet, .btn-quiet { min-height: 40px; }
+
 :focus-visible {
   outline: 2.5px solid var(--brand);
   outline-offset: 2px;
@@ -111,6 +120,55 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+/* Панель действий, приклеенная к низу экрана на телефоне */
+.action-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  margin: 0 -1rem;
+  padding: .75rem 1rem calc(.75rem + env(safe-area-inset-bottom));
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  backdrop-filter: blur(10px);
+  border-top: 1px solid var(--border);
+}
+@media (min-width: 640px) {
+  .action-bar {
+    position: static;
+    margin: 0;
+    padding: 0;
+    background: none;
+    backdrop-filter: none;
+    border-top: 0;
+  }
+}
+
+/* Горизонтальная лента фильтров вместо сетки, которая ломается на узком экране */
+.scroll-row {
+  display: flex;
+  gap: .75rem;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  margin: 0 -1rem;
+  padding: 0 1rem .25rem;
+}
+.scroll-row::-webkit-scrollbar { display: none; }
+.scroll-row > * { scroll-snap-align: start; flex: 0 0 clamp(150px, 46vw, 220px); }
+@media (min-width: 640px) {
+  .scroll-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+    margin: 0;
+    padding: 0;
+  }
+  .scroll-row > * { flex: initial; }
+}
+@media (min-width: 1024px) {
+  .scroll-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
 .card {
@@ -144,6 +202,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .field {
   width: 100%;
   padding: .78rem .95rem;
+  font-size: 16px;              /* меньше — и iOS зумит форму при фокусе */
+  min-height: 48px;
   background: var(--surface);
   border: 1.5px solid var(--border-strong);
   border-radius: var(--radius-s);

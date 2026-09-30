@@ -6,6 +6,13 @@ import { api, type Step, token } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import { Banner, Header, Icon, Progress, Spinner, useLang } from "@/components/ui";
 
+/** Родителю не нужен текст сетевой ошибки — ему нужно понятное объяснение. */
+function friendly(e: unknown, fallback = "Не удалось связаться с сервером. Проверьте соединение."): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  if (/failed to fetch|networkerror|load failed/i.test(raw)) return fallback;
+  return raw;
+}
+
 function InterviewInner() {
   const [lang, setLang] = useLang();
   const router = useRouter();
@@ -22,20 +29,26 @@ function InterviewInner() {
   const [showClarify, setShowClarify] = useState(false);
   const liveRef = useRef<HTMLDivElement>(null);
 
+  // Strict Mode в разработке монтирует компонент дважды; без этого замка
+  // создаются два кейса, а отменённый запрос показывается родителю как ошибка
+  const started = useRef(false);
+
   // Первый вопрос: либо продолжаем существующий кейс, либо создаём новый
   useEffect(() => {
     if (!token.get()) { router.replace("/"); return; }
+    if (started.current) return;
+    started.current = true;
     if (caseId) {
       api.answer({ case_id: caseId, question_id: "__resume__", question: "", answer: "", lang })
         .then((r) => { setStep(r.step); setEngine(r.engine); })
-        .catch((e) => setErr(e.message));
+        .catch((e) => setErr(friendly(e)));
     } else {
       api.startCase("", lang)
         .then((r) => {
           setStep(r.step); setEngine(r.engine);
           router.replace(`/interview?case=${r.case_id}`);
         })
-        .catch((e) => setErr(e.message));
+        .catch((e) => setErr(friendly(e)));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -52,7 +65,7 @@ function InterviewInner() {
       setStep(r.step); setEngine(r.engine);
       liveRef.current?.focus();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Не удалось сохранить ответ");
+      setErr(friendly(e, "Не удалось сохранить ответ. Попробуйте ещё раз."));
     } finally { setBusy(false); }
   };
 
@@ -63,7 +76,7 @@ function InterviewInner() {
       await api.buildPlan(caseId, lang);
       router.push(`/plan?case=${caseId}`);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Не удалось построить план");
+      setErr(friendly(e, "Не удалось построить план. Попробуйте ещё раз."));
       setBuilding(false);
     }
   };
@@ -91,11 +104,11 @@ function InterviewInner() {
               subtitle={engine.includes("demo") ? t("demoMode", lang) : "OpenAI structured outputs"}
               back={() => router.push("/plan")} />
 
-      <div className="mx-auto max-w-2xl px-4 pt-7 sm:px-6">
+      <div className="mx-auto max-w-2xl px-4 pt-5 sm:px-6 sm:pt-7">
         {/* прогресс */}
         <div className="mb-7">
-          <div className="mb-2 flex items-baseline justify-between text-[0.84rem]" style={{ color: "var(--ink-muted)" }}>
-            <span>{t("question", lang)} {step.progress_current} {t("of", lang)} {step.progress_total}</span>
+          <div className="mb-2 flex items-baseline justify-between gap-2 text-[0.82rem]" style={{ color: "var(--ink-muted)" }}>
+            <span className="truncate">{t("question", lang)} {step.progress_current} {t("of", lang)} {step.progress_total}</span>
             <span>{Math.round((step.progress_current / Math.max(1, step.progress_total)) * 100)}%</span>
           </div>
           <Progress value={step.progress_current} total={step.progress_total} label={t("question", lang)} />
@@ -121,7 +134,7 @@ function InterviewInner() {
               </button>
             </section>
           ) : (
-            <section className="card p-6 sm:p-7">
+            <section className="card p-5 sm:p-7">
               <h2 className="mb-3 text-balance">{q.text}</h2>
 
               {q.why && (
@@ -136,7 +149,7 @@ function InterviewInner() {
                 <div className="grid gap-2">
                   {q.options.map((o) => (
                     <button key={o.value} disabled={busy} onClick={() => send(o.value)}
-                            className="flex items-center justify-between gap-3 rounded-[var(--radius-s)] border px-4 py-3.5 text-left transition-colors hover:bg-[var(--surface-2)] disabled:opacity-50"
+                            className="flex min-h-[52px] items-center justify-between gap-3 rounded-[var(--radius-s)] border px-4 py-3.5 text-left transition-colors active:bg-[var(--surface-2)] hover:bg-[var(--surface-2)] disabled:opacity-50"
                             style={{ borderColor: "var(--border-strong)" }}>
                       <span className="text-[0.97rem]">{o.label}</span>
                       <Icon.arrow size={17} className="shrink-0 opacity-30" />
@@ -168,7 +181,8 @@ function InterviewInner() {
                       );
                     })}
                   </div>
-                  <button className="btn btn-primary mt-5 w-full" disabled={busy || multi.length === 0}
+                  <div className="action-bar mt-5">
+                  <button className="btn btn-primary w-full" disabled={busy || multi.length === 0}
                           onClick={() => send(multi.join(","))}>
                     {t("next", lang)} <Icon.arrow size={18} />
                   </button>
@@ -177,6 +191,7 @@ function InterviewInner() {
                       {t("selectAtLeast", lang)}
                     </p>
                   )}
+                  </div>
                 </>
               )}
 
@@ -189,9 +204,11 @@ function InterviewInner() {
                          min={q.input_type === "number" ? 0 : undefined}
                          max={q.input_type === "number" ? 18 : undefined}
                          step={q.input_type === "number" ? "0.5" : undefined} />
-                  <button className="btn btn-primary mt-4 w-full" disabled={busy || !answer.trim()}>
-                    {t("next", lang)} <Icon.arrow size={18} />
-                  </button>
+                  <div className="action-bar mt-4">
+                    <button className="btn btn-primary w-full" disabled={busy || !answer.trim()}>
+                      {t("next", lang)} <Icon.arrow size={18} />
+                    </button>
+                  </div>
                 </form>
               )}
 

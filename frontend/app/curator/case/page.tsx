@@ -31,7 +31,7 @@ function CuratorItem({ item, lang, caseId, onChange, confirmed }: {
   const unverified = item.parent_reported_status && !item.confirmed_by_curator;
 
   return (
-    <article className="card p-5" style={
+    <article className="card p-4 sm:p-5" style={
       item.status === "OVERDUE" ? { borderColor: "var(--st-overdue)" }
       : item.status === "BLOCKED" ? { borderColor: "var(--st-blocked)" }
       : unverified ? { borderColor: "var(--st-waiting)" } : undefined}>
@@ -116,7 +116,7 @@ function CuratorItem({ item, lang, caseId, onChange, confirmed }: {
           )}
 
           <div className="flex flex-wrap items-center gap-2 border-t pt-3" style={{ borderColor: "var(--border)" }}>
-            <select className="field !w-auto !py-1.5 !text-[0.84rem]" value={item.status} disabled={busy}
+            <select className="field !w-full !py-1.5 !text-[0.86rem] sm:!w-auto" value={item.status} disabled={busy}
                     onChange={(e) => run(() => api.setStatus(caseId, item.item_code, e.target.value as Status))}
                     aria-label="Статус шага">
               {STATUSES.map((s) => <option key={s} value={s}>{t(`st${s}` as never, lang)}</option>)}
@@ -193,9 +193,9 @@ function CaseInner() {
                 pending ? t("pendingReview", lang) : t("activeCase", lang)}`}
               back={() => router.push("/curator")} />
 
-      <div className="mx-auto max-w-5xl px-4 pt-7 sm:px-6">
+      <div className="mx-auto max-w-5xl px-4 pt-5 sm:px-6 sm:pt-7">
         {pending && (
-          <section className="card mb-6 flex flex-wrap items-center justify-between gap-4 p-5"
+          <section className="card mb-6 flex flex-wrap items-center justify-between gap-4 p-5 max-sm:sticky max-sm:top-[60px] max-sm:z-20"
                    style={{ borderColor: "var(--brand)" }}>
             <div className="min-w-0">
               <h3 className="mb-1">План готов к проверке</h3>
@@ -203,7 +203,7 @@ function CaseInner() {
                 Проверьте маршрут, услуги, сроки и документы. {t("confirmHint", lang)}
               </p>
             </div>
-            <button className="btn btn-primary shrink-0" onClick={confirm} disabled={busy}>
+            <button className="btn btn-primary w-full shrink-0 sm:w-auto" onClick={confirm} disabled={busy}>
               <Icon.check size={17} /> {t("confirmPlan", lang)}
             </button>
           </section>

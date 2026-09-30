@@ -27,6 +27,10 @@ from .schemas import (
 
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
+# Границы интервью из ТЗ: 8-12 адаптивных вопросов
+MIN_QUESTIONS = 8
+MAX_QUESTIONS = 12
+
 
 def _client():
     key = os.getenv("OPENAI_API_KEY", "").strip()
@@ -81,6 +85,8 @@ TONE = {
 INTERVIEW_SYSTEM = """Ты ведёшь адаптивное интервью с родителем ребёнка с расстройством аутистического спектра в Казахстане.
 
 Задача: за 8–12 вопросов понять, на каком этапе межведомственного маршрута находится семья.
+Уложись в этот бюджет. Недостающее уточнит куратор при проверке плана — это дешевле,
+чем утомить родителя длинной анкетой. Как только основное понятно, ставь is_complete = true.
 
 ГЛАВНОЕ ПРАВИЛО АДАПТИВНОСТИ: никогда не спрашивай то, что уже известно из предыдущих ответов.
 Если родитель сказал «у нас есть заключение ПМПК» — не спрашивай «проходили ли вы ПМПК»,
@@ -88,7 +94,9 @@ INTERVIEW_SYSTEM = """Ты ведёшь адаптивное интервью с
 Если сказал «инвалидность оформлена» — спрашивай про ИПАР, а затем про то,
 предоставляются ли мероприятия ИПАР на деле.
 
-Базовые темы (порядок подстраивай под ответы): регион; возраст ребёнка; этап;
+Регион и возраст уже спрошены системой — не спрашивай их повторно.
+
+Базовые темы (порядок подстраивай под ответы): этап;
 имеющиеся документы; ПМПК; где ребёнок учится; получаемые услуги; инвалидность и ИПАР;
 куда уже обращались; незавершённые обращения и проблемы; как справляется сам родитель.
 
@@ -116,10 +124,81 @@ PLAN_SYSTEM = """Ты формируешь межведомственный Case
 """ + SAFETY
 
 
+# ───────────────── что семья уже прошла (общая логика) ─────────────────
+
+def completed_services(state: CaseState) -> set[str]:
+    """
+    Услуги, которые семья уже получила. Выводится из состояния, а не из
+    доверия к модели: наличие инвалидности означает, что и МСЭ, и форма
+    №031/у, и консультация психиатра уже позади — иначе инвалидность
+    не оформили бы.
+    """
+    done: set[str] = set(state.services_receiving)
+
+    if state.has_diagnosis:
+        done.add("PSYCHIATRIC_CONSULTATION")
+    if state.has_pmpc_conclusion:
+        done.update({"PMPC_APPLICATION", "VKK_CONCLUSION", "PSYCHIATRIC_CONSULTATION"})
+    if state.has_disability:
+        done.update({"DISABILITY_ASSESSMENT", "VKK_CONCLUSION", "PSYCHIATRIC_CONSULTATION"})
+    if state.has_ipar:
+        done.update({"IPAR_APPLICATION", "DISABILITY_ASSESSMENT", "VKK_CONCLUSION",
+                     "PSYCHIATRIC_CONSULTATION"})
+    if "Форма №031/у" in state.documents_available:
+        done.add("VKK_CONCLUSION")
+
+    return done
+
+
+def drop_completed(items: list, state: CaseState) -> tuple[list, list[str]]:
+    """
+    Убирает шаги, которые семья уже прошла. Повторяющиеся услуги
+    (динамическое наблюдение, контроль терапии) остаются — их нужно
+    проходить снова. Возвращает (оставшиеся, причины отсева).
+    """
+    done = completed_services(state)
+    kept, dropped = [], []
+    for it in items:
+        sid = it.service_id if hasattr(it, "service_id") else it["service_id"]
+        svc = catalog.by_id(sid) or {}
+        if sid in done and not svc.get("recurring"):
+            dropped.append(f"{sid}: у семьи это уже есть")
+            continue
+        kept.append(it)
+    return kept, dropped
+
+
 # ──────────────────────────── интервью ────────────────────────────
 
 def next_question(history: list[dict], lang: str = "ru") -> tuple[InterviewStep, str]:
     """history: [{question_id, question, answer}]. Возвращает (шаг, движок)."""
+    # Верхняя граница держится сервером: модель склонна уточнять бесконечно,
+    # а родителю в стрессе длинная анкета обходится дороже, чем недостающее поле —
+    # чего не хватит, куратор уточнит при проверке плана.
+    # Регион и возраст — опорные поля: от них зависит весь каталог услуг.
+    # Их спрашивает система фиксированным списком, а не модель: свободный
+    # текст здесь означает нераспознанный регион и неверный набор услуг.
+    answered_ids = {h.get("question_id", "") for h in history}
+    for anchor in ("REGION", "CHILD_AGE"):
+        if anchor not in answered_ids:
+            q = next(x for x in _demo_questions(lang) if x["question_id"] == anchor)
+            return InterviewStep(
+                is_complete=False,
+                progress_current=len(history) + 1,
+                progress_total=MIN_QUESTIONS + 2,
+                next_question=InterviewQuestion(**q),
+                acknowledgement=_ack(history, lang) if history else "",
+            ), "anchor"
+
+    if len(history) >= MAX_QUESTIONS:
+        return InterviewStep(
+            is_complete=True,
+            progress_current=len(history),
+            progress_total=len(history),
+            next_question=None,
+            acknowledgement=DONE_MSG.get(lang, DONE_MSG["ru"]),
+        ), "limit"
+
     client = _client()
     if client is None:
         return _demo_next_question(history, lang), "demo"
@@ -129,14 +208,48 @@ def next_question(history: list[dict], lang: str = "ru") -> tuple[InterviewStep,
         for h in history
     ) or "(интервью ещё не начато)"
 
+    asked = [h.get("question_id", "") for h in history if h.get("question_id")]
+    left = MAX_QUESTIONS - len(history)
+    asked_note = (
+        f"\n\nУЖЕ ИСПОЛЬЗОВАННЫЕ question_id: {', '.join(asked)}. "
+        "Каждый из них использовать повторно ЗАПРЕЩЕНО. Если нужно уточнить ответ, "
+        "задай новый вопрос с новым уникальным question_id (например, REGION_CLARIFY)."
+        if asked else ""
+    )
+    budget_note = (
+        f"\n\nЗадано вопросов: {len(history)}. Осталось не больше {left}. "
+        f"Интервью должно уложиться в {MIN_QUESTIONS}-{MAX_QUESTIONS} вопросов. "
+        + ("Задай последний, самый важный вопрос и заверши интервью."
+           if left <= 2 else
+           "Выбирай вопросы, которые больше всего меняют маршрут; второстепенные уточнения пропускай.")
+    )
+
     try:
         r = client.responses.parse(
             model=MODEL,
             instructions=INTERVIEW_SYSTEM + f"\n\nЯзык общения: {lang}.",
-            input=f"Ход интервью:\n{transcript}\n\nЗадай следующий вопрос или заверши интервью.",
+            input=f"Ход интервью:\n{transcript}{asked_note}{budget_note}\n\nЗадай следующий вопрос или заверши интервью.",
             text_format=InterviewStep,
         )
-        return r.output_parsed, "openai"
+        step = r.output_parsed
+        step.progress_current = len(history) + 1
+        step.progress_total = max(MIN_QUESTIONS, min(MAX_QUESTIONS, step.progress_total or MIN_QUESTIONS))
+        if step.progress_current > step.progress_total:
+            step.progress_total = min(MAX_QUESTIONS, step.progress_current)
+        # страховка: вопрос с фиксированным набором ответов не должен
+        # превращаться в свободный ввод — иначе ответ не распознается
+        if step.next_question and step.next_question.input_type in ("single_choice", "multi_choice") \
+                and not step.next_question.options:
+            step.next_question.input_type = "text"
+        # страховка: модель иногда повторяет код вопроса — делаем его уникальным,
+        # иначе ответ перезапишет предыдущий и состояние соберётся неверно
+        if step.next_question and step.next_question.question_id in asked:
+            base = step.next_question.question_id
+            n = 2
+            while f"{base}_{n}" in asked:
+                n += 1
+            step.next_question.question_id = f"{base}_{n}"
+        return step, "openai"
     except Exception as e:                                   # noqa: BLE001
         print(f"[ai] интервью — переход в demo: {type(e).__name__}: {e}")
         return _demo_next_question(history, lang), "demo-fallback"
@@ -198,58 +311,72 @@ def build_plan(state: CaseState, lang: str = "ru") -> tuple[GeneratedCasePlan, s
         )
         plan = r.output_parsed
         kept, rejected = catalog.validate_plan_items(plan.items, state.region.value, state.child_age)
-        plan.items = kept
-        return plan, "openai", rejected
+        kept, already = drop_completed(kept, state)
+        plan.items = _renumber(kept)
+        return plan, "openai", rejected + already
     except Exception as e:                                   # noqa: BLE001
         print(f"[ai] план — переход в demo: {type(e).__name__}: {e}")
         return _demo_plan(state, lang), "demo-fallback", []
+
+
+def _renumber(items: list) -> list:
+    """После отсева коды шагов идут подряд, а ссылки depends_on остаются валидными."""
+    mapping = {}
+    for n, it in enumerate(items, 1):
+        old = it.id if hasattr(it, "id") else it["id"]
+        mapping[old] = f"CP-{n:03d}"
+    alive = set(mapping)
+    for it in items:
+        if hasattr(it, "id"):
+            it.depends_on = [mapping[d] for d in it.depends_on if d in alive]
+            it.id = mapping[it.id]
+        else:
+            it["depends_on"] = [mapping[d] for d in it.get("depends_on", []) if d in alive]
+            it["id"] = mapping[it["id"]]
+    return items
 
 
 # ═══════════════════════ DEMO-режим (без ключа) ═══════════════════════
 # Детерминированный планировщик по тому же каталогу и тем же правилам.
 # Нужен, чтобы демонстрация работала при отсутствии кредитов или сети.
 
-DEMO_QUESTIONS: list[dict] = [
-    {"question_id": "REGION", "text": "В каком городе или области вы сейчас живёте?", "why": "От региона зависит, какие организации и услуги вам доступны.", "input_type": "single_choice",
-     "options": [{"value": "ASTANA", "label": "Астана"}, {"value": "KARAGANDA", "label": "Караганда и Карагандинская область"}, {"value": "ALMATY", "label": "Алматы"}]},
-    {"question_id": "CHILD_AGE", "text": "Сколько лет ребёнку?", "why": "Возраст определяет, какие этапы маршрута сейчас актуальны.", "input_type": "number", "options": []},
-    {"question_id": "STAGE", "text": "На каком этапе вы сейчас?", "why": "Это отправная точка маршрута. «Не знаю» — нормальный ответ.", "input_type": "single_choice",
-     "options": [{"value": "SUSPECTED", "label": "Нам только сказали, что у ребёнка может быть РАС"},
-                 {"value": "CONFIRMED", "label": "Диагноз уже подтверждён"},
-                 {"value": "CONFIRMED_NO_DOCS", "label": "Диагноз подтверждён, но дальше ничего не оформляли"},
-                 {"value": "HAS_DISABILITY", "label": "Уже получили инвалидность, не знаем что дальше"},
-                 {"value": "HAS_PMPC", "label": "Прошли ПМПК, определили тип образования"},
-                 {"value": "RECEIVING_HELP", "label": "Все документы есть, ребёнок получает помощь"},
-                 {"value": "UNKNOWN", "label": "Не знаю, на каком мы этапе"}]},
-    {"question_id": "DOCUMENTS", "text": "Какие документы у вас уже есть?", "why": "Чтобы не отправлять вас собирать то, что уже на руках.", "input_type": "multi_choice",
-     "options": [{"value": "DOCTOR", "label": "Заключение врача"}, {"value": "PMPC", "label": "Заключение ПМПК"},
-                 {"value": "SCHOOL", "label": "Документы из детского сада или школы"}, {"value": "DISABILITY", "label": "Документы об инвалидности"},
-                 {"value": "IPAR", "label": "ИПАР"}, {"value": "REHAB", "label": "Документы о реабилитации"},
-                 {"value": "OTHER", "label": "Другое"}, {"value": "NONE", "label": "Пока ничего нет"}]},
-    {"question_id": "PMPC", "text": "Проходили ли вы ПМПК?", "why": "ПМПК определяет, какие образовательные условия нужны ребёнку.", "input_type": "single_choice",
-     "options": [{"value": "YES", "label": "Да"}, {"value": "NO", "label": "Нет"}, {"value": "SCHEDULED", "label": "Записались"},
-                 {"value": "NO_RESULT", "label": "Проходили, но заключение не получили"}, {"value": "WHAT", "label": "Не знаю, что это"}],
-     "clarification": "ПМПК — это психолого-медико-педагогическая консультация. Она определяет особые образовательные потребности ребёнка: нужен ли тьютор, по какой программе учиться и в какой форме. Сейчас уточню ещё пару вопросов, чтобы понять, нужен ли вам этот этап."},
-    {"question_id": "EDUCATION", "text": "Где сейчас ребёнок получает образование?", "why": "От этого зависит, какие условия нужно организовать.", "input_type": "single_choice",
-     "options": [{"value": "HOME", "label": "Дома"}, {"value": "KINDERGARTEN", "label": "Детский сад"}, {"value": "SPECIAL_KINDERGARTEN", "label": "Специальный детский сад"},
-                 {"value": "SCHOOL", "label": "Школа"}, {"value": "SPECIAL_SCHOOL", "label": "Специальная школа"}, {"value": "NONE", "label": "Не посещает"}]},
-    {"question_id": "SERVICES", "text": "Какие услуги ребёнок получает сейчас?", "why": "Чтобы не дублировать то, что уже есть.", "input_type": "multi_choice",
-     "options": [{"value": "PSYCHOLOGICAL_PEDAGOGICAL_SUPPORT", "label": "Психолого-педагогическая помощь"}, {"value": "REHABILITATION_REFERRAL", "label": "Реабилитация"},
-                 {"value": "SPEECH_AND_OT", "label": "Логопед, дефектолог, эрготерапевт"}, {"value": "ABA_THERAPY", "label": "Поведенческая помощь (ABA)"},
-                 {"value": "EARLY_INTERVENTION", "label": "Раннее вмешательство"}, {"value": "NONE", "label": "Пока никаких"}]},
-    {"question_id": "DISABILITY", "text": "Оформлена ли ребёнку инвалидность?", "why": "Инвалидность открывает доступ к ИПАР, пособиям и реабилитации.", "input_type": "single_choice",
-     "options": [{"value": "YES", "label": "Да"}, {"value": "NO", "label": "Нет"}, {"value": "SUBMITTED", "label": "Документы поданы"}, {"value": "UNKNOWN", "label": "Не знаю"}]},
-    {"question_id": "CONTACTED", "text": "Куда вы уже обращались?", "why": "Чтобы вам не пришлось повторно собирать то же самое.", "input_type": "multi_choice",
-     "options": [{"value": "CLINIC", "label": "Поликлиника"}, {"value": "PMPC", "label": "ПМПК"}, {"value": "REHAB", "label": "Реабилитационный центр"},
-                 {"value": "SOCIAL", "label": "Соцзащита"}, {"value": "NONE", "label": "Никуда"}]},
-    {"question_id": "PROBLEMS", "text": "Есть ли сейчас незавершённое обращение или проблема, которую не удаётся решить?", "why": "Здесь мы находим, где именно маршрут остановился.", "input_type": "multi_choice",
-     "options": [{"value": "WAITING_DOC", "label": "Ждём документ"}, {"value": "WAITING_REFERRAL", "label": "Ждём направление"},
-                 {"value": "NO_PMPC_SLOT", "label": "Не можем попасть на ПМПК"}, {"value": "SERVICE_NOT_PROVIDED", "label": "Услуга назначена, но не предоставляется"},
-                 {"value": "LOST", "label": "Не знаем, куда идти"}, {"value": "OVERDUE", "label": "Срок уже прошёл"}, {"value": "NONE", "label": "Нет таких"}]},
-    {"question_id": "PARENT_STATE", "text": "А как вы сами сейчас справляетесь? Есть ли у вас поддержка?", "why": "Ваше состояние напрямую влияет на то, что реально выполнимо. Это не формальность.", "input_type": "single_choice",
-     "options": [{"value": "OK", "label": "В целом справляюсь, поддержка есть"}, {"value": "HARD", "label": "Тяжело, но держусь"},
-                 {"value": "EXHAUSTED", "label": "Очень тяжело, сил почти нет"}, {"value": "ALONE", "label": "Справляюсь один, поддержки нет"}]},
-]
+def _demo_questions(lang: str = "ru") -> list[dict]:
+    """Вопросы demo-режима на языке интервью. Загружаются из data/questions.json."""
+    raw = json.loads((catalog.DATA / "questions.json").read_text(encoding="utf-8"))["questions"]
+    out = []
+    for q in raw:
+        out.append({
+            "question_id": q["question_id"],
+            "text": q["text"].get(lang, q["text"]["ru"]),
+            "why": q["why"].get(lang, q["why"]["ru"]),
+            "input_type": q["input_type"],
+            "options": [{"value": o["value"], "label": o["label"].get(lang, o["label"]["ru"])}
+                        for o in q.get("options", [])],
+            "allow_dont_know": True,
+            "clarification": (q.get("clarification") or {}).get(lang, (q.get("clarification") or {}).get("ru", "")),
+        })
+    return out
+
+
+ACK = {
+    "tired": {
+        "ru": "Спасибо, что сказали об этом. Я учту вашу нагрузку и не буду перегружать план.",
+        "kk": "Айтқаныңыз үшін рахмет. Жүктемеңізді ескеремін, жоспарды артық толтырмаймын.",
+        "en": "Thank you for saying that. I'll take your load into account and keep the plan light.",
+    },
+    "unknown": {
+        "ru": "Это нормальный ответ, разберёмся вместе.",
+        "kk": "Бұл қалыпты жауап, бірге шешеміз.",
+        "en": "That's a perfectly normal answer — we'll work it out together.",
+    },
+    "ok": {"ru": "Принято.", "kk": "Қабылданды.", "en": "Got it."},
+}
+
+DONE_MSG = {
+    "ru": "Спасибо. Я собрал достаточно, чтобы построить ваш маршрут.",
+    "kk": "Рахмет. Бағытыңызды құруға жеткілікті ақпарат жинадым.",
+    "en": "Thank you. I have enough to build your route.",
+}
 
 
 def _answered(history: list[dict]) -> dict[str, str]:
@@ -259,6 +386,7 @@ def _answered(history: list[dict]) -> dict[str, str]:
 def _demo_next_question(history: list[dict], lang: str) -> InterviewStep:
     """Адаптивность в demo: пропускаем вопросы, ответ на которые уже выводится из сказанного."""
     a = _answered(history)
+    questions = _demo_questions(lang)
     skip: set[str] = set()
 
     stage = a.get("STAGE", "")
@@ -270,31 +398,33 @@ def _demo_next_question(history: list[dict], lang: str) -> InterviewStep:
     if stage == "SUSPECTED":
         skip |= {"DISABILITY", "SERVICES"}   # оформлять ещё нечего
 
-    for q in DEMO_QUESTIONS:
+    for q in questions:
         if q["question_id"] in a or q["question_id"] in skip:
             continue
-        total = len([x for x in DEMO_QUESTIONS if x["question_id"] not in skip])
+        total = len([x for x in questions if x["question_id"] not in skip])
         return InterviewStep(
             is_complete=False,
             progress_current=len(a) + 1,
             progress_total=max(8, min(12, total)),
             next_question=InterviewQuestion(**q),
-            acknowledgement=_ack(history),
+            acknowledgement=_ack(history, lang),
         )
 
     return InterviewStep(is_complete=True, progress_current=len(a), progress_total=len(a),
-                         next_question=None, acknowledgement="Спасибо. Я собрал достаточно, чтобы построить ваш маршрут.")
+                         next_question=None, acknowledgement=DONE_MSG.get(lang, DONE_MSG["ru"]))
 
 
-def _ack(history: list[dict]) -> str:
+def _ack(history: list[dict], lang: str = "ru") -> str:
     if not history:
         return ""
     last = str(history[-1].get("answer", "")).upper()
     if "EXHAUSTED" in last or "ALONE" in last:
-        return "Спасибо, что сказали об этом. Я учту вашу нагрузку и не буду перегружать план."
-    if "NONE" in last or "UNKNOWN" in last or "НЕ ЗНАЮ" in last:
-        return "Это нормальный ответ, разберёмся вместе."
-    return "Принято."
+        key = "tired"
+    elif "NONE" in last or "UNKNOWN" in last:
+        key = "unknown"
+    else:
+        key = "ok"
+    return ACK[key].get(lang, ACK[key]["ru"])
 
 
 def _demo_state(history: list[dict]) -> CaseState:
@@ -342,7 +472,7 @@ def _demo_state(history: list[dict]) -> CaseState:
         parent_needs_support=pstate in ("EXHAUSTED", "ALONE"),
         education_setting=a.get("EDUCATION", ""),
         on_medication=False,
-        missing_data=[q["question_id"] for q in DEMO_QUESTIONS if q["question_id"] not in a],
+        missing_data=[q["question_id"] for q in _demo_questions("ru") if q["question_id"] not in a],
     )
 
 
@@ -350,18 +480,7 @@ def _demo_plan(state: CaseState, lang: str) -> GeneratedCasePlan:
     """Планировщик по зависимостям каталога: берём то, что доступно и ещё не сделано."""
     eligible = catalog.eligible(state.region.value, state.child_age)
     have_docs = set(state.documents_available)
-    done: set[str] = set(state.services_receiving)
-
-    if state.has_diagnosis:
-        done.add("PSYCHIATRIC_CONSULTATION")
-    if "Форма №031/у" in have_docs or state.has_disability:
-        done.add("VKK_CONCLUSION")
-    if state.has_disability:
-        done.add("DISABILITY_ASSESSMENT")
-    if state.has_ipar:
-        done.add("IPAR_APPLICATION")
-    if state.has_pmpc_conclusion:
-        done.add("PMPC_APPLICATION")
+    done = completed_services(state)
 
     items: list[CasePlanItem] = []
     n = 0

@@ -1,0 +1,151 @@
+{
+  "_meta": "Вопросы адаптивного интервью для demo-режима на трёх языках. При работе через OpenAI вопросы генерирует модель на языке интервью.",
+  "questions": [
+    {
+      "question_id": "REGION",
+      "input_type": "single_choice",
+      "text": { "ru": "В каком городе или области вы сейчас живёте?", "kk": "Қазір қай қалада немесе облыста тұрасыз?", "en": "Which city or region do you live in?" },
+      "why": { "ru": "От региона зависит, какие организации и услуги вам доступны.", "kk": "Өңірге байланысты қандай ұйымдар мен қызметтер қолжетімді екені анықталады.", "en": "Your region determines which organisations and services are available to you." },
+      "options": [
+        { "value": "ASTANA", "label": { "ru": "Астана", "kk": "Астана", "en": "Astana" } },
+        { "value": "KARAGANDA", "label": { "ru": "Караганда и Карагандинская область", "kk": "Қарағанды және Қарағанды облысы", "en": "Karaganda and Karaganda region" } },
+        { "value": "ALMATY", "label": { "ru": "Алматы", "kk": "Алматы", "en": "Almaty" } }
+      ]
+    },
+    {
+      "question_id": "CHILD_AGE",
+      "input_type": "number",
+      "text": { "ru": "Сколько лет ребёнку?", "kk": "Бала неше жаста?", "en": "How old is your child?" },
+      "why": { "ru": "Возраст определяет, какие этапы маршрута сейчас актуальны.", "kk": "Жас бағыттың қай кезеңдері өзекті екенін айқындайды.", "en": "Age determines which stages of the route are relevant now." },
+      "options": []
+    },
+    {
+      "question_id": "STAGE",
+      "input_type": "single_choice",
+      "text": { "ru": "На каком этапе вы сейчас?", "kk": "Қазір қай кезеңдесіз?", "en": "Where are you in the process right now?" },
+      "why": { "ru": "Это отправная точка маршрута. «Не знаю» — нормальный ответ.", "kk": "Бұл бағыттың бастау нүктесі. «Білмеймін» — қалыпты жауап.", "en": "This is the starting point. \"I don't know\" is a perfectly normal answer." },
+      "options": [
+        { "value": "SUSPECTED", "label": { "ru": "Нам только сказали, что у ребёнка может быть РАС", "kk": "Бізге баланың АСБ болуы мүмкін деп жаңа ғана айтты", "en": "We've only just been told the child may have ASD" } },
+        { "value": "CONFIRMED", "label": { "ru": "Диагноз уже подтверждён", "kk": "Диагноз расталды", "en": "The diagnosis is confirmed" } },
+        { "value": "CONFIRMED_NO_DOCS", "label": { "ru": "Диагноз подтверждён, но дальше ничего не оформляли", "kk": "Диагноз расталды, бірақ әрі қарай ештеңе ресімделген жоқ", "en": "Diagnosis confirmed, but nothing has been filed since" } },
+        { "value": "HAS_DISABILITY", "label": { "ru": "Уже получили инвалидность, не знаем что дальше", "kk": "Мүгедектік алдық, әрі қарай не істерімізді білмейміз", "en": "Disability status granted, unsure what comes next" } },
+        { "value": "HAS_PMPC", "label": { "ru": "Прошли ПМПК, определили тип образования", "kk": "ПМПК өттік, білім беру түрі анықталды", "en": "We've been through the educational commission" } },
+        { "value": "RECEIVING_HELP", "label": { "ru": "Все документы есть, ребёнок получает помощь", "kk": "Барлық құжат бар, бала көмек алуда", "en": "All documents in place, the child receives support" } },
+        { "value": "UNKNOWN", "label": { "ru": "Не знаю, на каком мы этапе", "kk": "Қай кезеңде екенімізді білмеймін", "en": "I don't know where we are" } }
+      ]
+    },
+    {
+      "question_id": "DOCUMENTS",
+      "input_type": "multi_choice",
+      "text": { "ru": "Какие документы у вас уже есть?", "kk": "Сізде қандай құжаттар бар?", "en": "Which documents do you already have?" },
+      "why": { "ru": "Чтобы не отправлять вас собирать то, что уже на руках.", "kk": "Қолыңызда барды қайта жинауға жібермеу үшін.", "en": "So we don't send you to collect what you already hold." },
+      "options": [
+        { "value": "DOCTOR", "label": { "ru": "Заключение врача", "kk": "Дәрігер қорытындысы", "en": "Doctor's conclusion" } },
+        { "value": "PMPC", "label": { "ru": "Заключение ПМПК", "kk": "ПМПК қорытындысы", "en": "Educational commission conclusion" } },
+        { "value": "SCHOOL", "label": { "ru": "Документы из детского сада или школы", "kk": "Балабақша немесе мектеп құжаттары", "en": "Documents from kindergarten or school" } },
+        { "value": "DISABILITY", "label": { "ru": "Документы об инвалидности", "kk": "Мүгедектік туралы құжаттар", "en": "Disability documents" } },
+        { "value": "IPAR", "label": { "ru": "ИПАР", "kk": "ЖАОБ", "en": "Individual rehabilitation programme" } },
+        { "value": "REHAB", "label": { "ru": "Документы о реабилитации", "kk": "Оңалту туралы құжаттар", "en": "Rehabilitation documents" } },
+        { "value": "NONE", "label": { "ru": "Пока ничего нет", "kk": "Әзірге ештеңе жоқ", "en": "Nothing yet" } }
+      ]
+    },
+    {
+      "question_id": "PMPC",
+      "input_type": "single_choice",
+      "text": { "ru": "Проходили ли вы ПМПК?", "kk": "ПМПК-дан өттіңіз бе?", "en": "Have you been through the educational commission?" },
+      "why": { "ru": "ПМПК определяет, какие образовательные условия нужны ребёнку.", "kk": "ПМПК балаға қандай білім беру жағдайлары қажет екенін анықтайды.", "en": "It determines what educational conditions the child needs." },
+      "clarification": {
+        "ru": "ПМПК — это психолого-медико-педагогическая консультация. Она определяет особые образовательные потребности ребёнка: нужен ли тьютор, по какой программе учиться и в какой форме. Сейчас уточню ещё пару вопросов, чтобы понять, нужен ли вам этот этап.",
+        "kk": "ПМПК — психологиялық-медициналық-педагогикалық консультация. Ол баланың ерекше білім беру қажеттіліктерін анықтайды: тьютор қажет пе, қай бағдарлама бойынша және қандай нысанда оқу керек. Қазір бұл кезең сізге қажет пе екенін түсіну үшін бірнеше сұрақ қоямын.",
+        "en": "It is a psychological-medical-pedagogical commission. It determines the child's special educational needs: whether a tutor is required, which programme to follow and in what form. Let me ask a couple more questions to see whether you need this stage."
+      },
+      "options": [
+        { "value": "YES", "label": { "ru": "Да", "kk": "Иә", "en": "Yes" } },
+        { "value": "NO", "label": { "ru": "Нет", "kk": "Жоқ", "en": "No" } },
+        { "value": "SCHEDULED", "label": { "ru": "Записались", "kk": "Жазылдық", "en": "We have an appointment" } },
+        { "value": "NO_RESULT", "label": { "ru": "Проходили, но заключение не получили", "kk": "Өттік, бірақ қорытынды алмадық", "en": "Attended, but received no conclusion" } },
+        { "value": "WHAT", "label": { "ru": "Не знаю, что это", "kk": "Бұл не екенін білмеймін", "en": "I don't know what that is" } }
+      ]
+    },
+    {
+      "question_id": "EDUCATION",
+      "input_type": "single_choice",
+      "text": { "ru": "Где сейчас ребёнок получает образование?", "kk": "Бала қазір қайда білім алады?", "en": "Where does the child study now?" },
+      "why": { "ru": "От этого зависит, какие условия нужно организовать.", "kk": "Осыған байланысты қандай жағдай жасау керегі анықталады.", "en": "This determines which conditions need to be arranged." },
+      "options": [
+        { "value": "HOME", "label": { "ru": "Дома", "kk": "Үйде", "en": "At home" } },
+        { "value": "KINDERGARTEN", "label": { "ru": "Детский сад", "kk": "Балабақша", "en": "Kindergarten" } },
+        { "value": "SPECIAL_KINDERGARTEN", "label": { "ru": "Специальный детский сад", "kk": "Арнайы балабақша", "en": "Special kindergarten" } },
+        { "value": "SCHOOL", "label": { "ru": "Школа", "kk": "Мектеп", "en": "School" } },
+        { "value": "SPECIAL_SCHOOL", "label": { "ru": "Специальная школа", "kk": "Арнайы мектеп", "en": "Special school" } },
+        { "value": "NONE", "label": { "ru": "Не посещает", "kk": "Бармайды", "en": "Does not attend" } }
+      ]
+    },
+    {
+      "question_id": "SERVICES",
+      "input_type": "multi_choice",
+      "text": { "ru": "Какие услуги ребёнок получает сейчас?", "kk": "Бала қазір қандай қызметтер алады?", "en": "Which services does the child receive now?" },
+      "why": { "ru": "Чтобы не дублировать то, что уже есть.", "kk": "Бар нәрсені қайталамау үшін.", "en": "So we don't duplicate what is already in place." },
+      "options": [
+        { "value": "PSYCHOLOGICAL_PEDAGOGICAL_SUPPORT", "label": { "ru": "Психолого-педагогическая помощь", "kk": "Психологиялық-педагогикалық көмек", "en": "Psychological and pedagogical support" } },
+        { "value": "REHABILITATION_REFERRAL", "label": { "ru": "Реабилитация", "kk": "Оңалту", "en": "Rehabilitation" } },
+        { "value": "SPEECH_AND_OT", "label": { "ru": "Логопед, дефектолог, эрготерапевт", "kk": "Логопед, дефектолог, эрготерапевт", "en": "Speech therapy, special education, occupational therapy" } },
+        { "value": "ABA_THERAPY", "label": { "ru": "Поведенческая помощь (ABA)", "kk": "Мінез-құлықтық көмек (ABA)", "en": "Applied behaviour analysis (ABA)" } },
+        { "value": "EARLY_INTERVENTION", "label": { "ru": "Раннее вмешательство", "kk": "Ерте араласу", "en": "Early intervention" } },
+        { "value": "NONE", "label": { "ru": "Пока никаких", "kk": "Әзірге ешқандай", "en": "None yet" } }
+      ]
+    },
+    {
+      "question_id": "DISABILITY",
+      "input_type": "single_choice",
+      "text": { "ru": "Оформлена ли ребёнку инвалидность?", "kk": "Балаға мүгедектік ресімделген бе?", "en": "Has disability status been granted?" },
+      "why": { "ru": "Инвалидность открывает доступ к ИПАР, пособиям и реабилитации.", "kk": "Мүгедектік ЖАОБ-қа, жәрдемақыларға және оңалтуға қол жеткізеді.", "en": "It unlocks the rehabilitation programme, allowances and services." },
+      "options": [
+        { "value": "YES", "label": { "ru": "Да", "kk": "Иә", "en": "Yes" } },
+        { "value": "NO", "label": { "ru": "Нет", "kk": "Жоқ", "en": "No" } },
+        { "value": "SUBMITTED", "label": { "ru": "Документы поданы", "kk": "Құжаттар тапсырылды", "en": "Application submitted" } },
+        { "value": "UNKNOWN", "label": { "ru": "Не знаю", "kk": "Білмеймін", "en": "I don't know" } }
+      ]
+    },
+    {
+      "question_id": "CONTACTED",
+      "input_type": "multi_choice",
+      "text": { "ru": "Куда вы уже обращались?", "kk": "Қайда жүгініп үлгердіңіз?", "en": "Where have you already applied?" },
+      "why": { "ru": "Чтобы вам не пришлось повторно собирать то же самое.", "kk": "Сол құжаттарды қайта жинауға тура келмеуі үшін.", "en": "So you don't have to gather the same papers twice." },
+      "options": [
+        { "value": "CLINIC", "label": { "ru": "Поликлиника", "kk": "Емхана", "en": "Clinic" } },
+        { "value": "PMPC", "label": { "ru": "ПМПК", "kk": "ПМПК", "en": "Educational commission" } },
+        { "value": "REHAB", "label": { "ru": "Реабилитационный центр", "kk": "Оңалту орталығы", "en": "Rehabilitation centre" } },
+        { "value": "SOCIAL", "label": { "ru": "Соцзащита", "kk": "Әлеуметтік қорғау", "en": "Social services" } },
+        { "value": "NONE", "label": { "ru": "Никуда", "kk": "Ешқайда", "en": "Nowhere" } }
+      ]
+    },
+    {
+      "question_id": "PROBLEMS",
+      "input_type": "multi_choice",
+      "text": { "ru": "Есть ли сейчас незавершённое обращение или проблема, которую не удаётся решить?", "kk": "Қазір аяқталмаған өтініш немесе шешілмей тұрған мәселе бар ма?", "en": "Is there an unfinished application or a problem you cannot resolve?" },
+      "why": { "ru": "Здесь мы находим, где именно маршрут остановился.", "kk": "Осы жерде бағыттың дәл қай жерде тоқтағанын табамыз.", "en": "This is where we find exactly where the route stalled." },
+      "options": [
+        { "value": "WAITING_DOC", "label": { "ru": "Ждём документ", "kk": "Құжат күтудеміз", "en": "Waiting for a document" } },
+        { "value": "WAITING_REFERRAL", "label": { "ru": "Ждём направление", "kk": "Жолдама күтудеміз", "en": "Waiting for a referral" } },
+        { "value": "NO_PMPC_SLOT", "label": { "ru": "Не можем попасть на ПМПК", "kk": "ПМПК-ға түсе алмаймыз", "en": "Cannot get an appointment with the commission" } },
+        { "value": "SERVICE_NOT_PROVIDED", "label": { "ru": "Услуга назначена, но не предоставляется", "kk": "Қызмет тағайындалған, бірақ көрсетілмейді", "en": "A service was assigned but is not delivered" } },
+        { "value": "LOST", "label": { "ru": "Не знаем, куда идти", "kk": "Қайда баруды білмейміз", "en": "We don't know where to go" } },
+        { "value": "OVERDUE", "label": { "ru": "Срок уже прошёл", "kk": "Мерзімі өтіп кетті", "en": "The deadline has passed" } },
+        { "value": "NONE", "label": { "ru": "Нет таких", "kk": "Жоқ", "en": "None" } }
+      ]
+    },
+    {
+      "question_id": "PARENT_STATE",
+      "input_type": "single_choice",
+      "text": { "ru": "А как вы сами сейчас справляетесь? Есть ли у вас поддержка?", "kk": "Ал өзіңіз қалай шыдап жүрсіз? Қолдау бар ма?", "en": "And how are you coping yourself? Do you have support?" },
+      "why": { "ru": "Ваше состояние напрямую влияет на то, что реально выполнимо. Это не формальность.", "kk": "Сіздің жағдайыңыз шынымен орындалатын нәрсеге тікелей әсер етеді.", "en": "Your own state directly affects what is realistically achievable. This is not a formality." },
+      "options": [
+        { "value": "OK", "label": { "ru": "В целом справляюсь, поддержка есть", "kk": "Жалпы шыдап жүрмін, қолдау бар", "en": "Coping overall, I have support" } },
+        { "value": "HARD", "label": { "ru": "Тяжело, но держусь", "kk": "Қиын, бірақ шыдап жүрмін", "en": "It's hard, but I'm holding on" } },
+        { "value": "EXHAUSTED", "label": { "ru": "Очень тяжело, сил почти нет", "kk": "Өте қиын, күш қалмады", "en": "Very hard, I have almost no strength left" } },
+        { "value": "ALONE", "label": { "ru": "Справляюсь один, поддержки нет", "kk": "Жалғыз шыдап жүрмін, қолдау жоқ", "en": "I'm on my own, with no support" } }
+      ]
+    }
+  ]
+}

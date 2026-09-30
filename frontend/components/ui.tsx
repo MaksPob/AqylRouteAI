@@ -126,15 +126,19 @@ export function Header({ lang, setLang, title, subtitle, right, back }:
   return (
     <header className="sticky top-0 z-30 border-b backdrop-blur"
             style={{ background: "color-mix(in srgb, var(--surface) 88%, transparent)", borderColor: "var(--border)" }}>
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
+      <div className="mx-auto flex max-w-6xl items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-6 sm:py-3">
         {back && (
           <button onClick={back} className="btn btn-quiet -ml-2" aria-label={t("back", lang)}>
             <Icon.back size={20} />
           </button>
         )}
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[1.02rem] font-bold tracking-tight">{title}</div>
-          {subtitle && <div className="truncate text-[0.83rem]" style={{ color: "var(--ink-muted)" }}>{subtitle}</div>}
+          <div className="truncate text-[0.97rem] font-bold tracking-tight sm:text-[1.02rem]">{title}</div>
+          {subtitle && (
+            <div className="truncate text-[0.78rem] sm:text-[0.83rem]" style={{ color: "var(--ink-muted)" }}>
+              {subtitle}
+            </div>
+          )}
         </div>
         {right}
         <LangSwitch lang={lang} onChange={setLang} />
