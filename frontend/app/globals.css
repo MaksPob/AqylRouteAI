@@ -1,0 +1,158 @@
+@import "tailwindcss";
+
+/*
+  Дизайн-система AqylRoute.
+  Статус-цвета взяты из валидированной палитры: каждый статус всегда идёт
+  вместе с иконкой и подписью, поэтому цвет никогда не несёт смысл в одиночку.
+*/
+:root {
+  color-scheme: light;
+
+  --bg:            #f7f7f5;
+  --surface:       #fcfcfb;
+  --surface-2:     #f2f2ef;
+  --border:        #e3e3de;
+  --border-strong: #c9c9c2;
+
+  --ink:           #0b0b0b;
+  --ink-2:         #52514e;
+  --ink-muted:     #77766f;
+
+  --brand:         #1d5fa8;
+  --brand-ink:     #16467c;
+  --brand-soft:    #e8f0f9;
+
+  --st-done:       #0ca30c;
+  --st-todo:       #fab219;
+  --st-progress:   #2a78d6;
+  --st-waiting:    #7c5cd6;
+  --st-overdue:    #d03b3b;
+  --st-blocked:    #ec835a;
+  --st-cancelled:  #898781;
+
+  --st-done-bg:      #eaf7ea;
+  --st-todo-bg:      #fdf4e0;
+  --st-progress-bg:  #e9f1fc;
+  --st-waiting-bg:   #f0ecfb;
+  --st-overdue-bg:   #fbebeb;
+  --st-blocked-bg:   #fdefe8;
+  --st-cancelled-bg: #f0f0ee;
+
+  --radius:   14px;
+  --radius-s: 10px;
+  --shadow:   0 1px 2px rgba(11,11,11,.04), 0 4px 16px rgba(11,11,11,.05);
+  --shadow-l: 0 2px 6px rgba(11,11,11,.06), 0 12px 32px rgba(11,11,11,.09);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg:            #0d0d0d;
+    --surface:       #1a1a19;
+    --surface-2:     #232322;
+    --border:        #32322f;
+    --border-strong: #4a4a45;
+    --ink:           #ffffff;
+    --ink-2:         #c3c2b7;
+    --ink-muted:     #949389;
+    --brand:         #5ea0e8;
+    --brand-ink:     #8bbcf0;
+    --brand-soft:    #16283d;
+    --st-done:       #3fc23f;
+    --st-todo:       #fab219;
+    --st-progress:   #3987e5;
+    --st-waiting:    #9d82e5;
+    --st-overdue:    #e35d5d;
+    --st-blocked:    #ec835a;
+    --st-done-bg:      #10240f;
+    --st-todo-bg:      #2c2410;
+    --st-progress-bg:  #12233a;
+    --st-waiting-bg:   #221b38;
+    --st-overdue-bg:   #301414;
+    --st-blocked-bg:   #2f1d13;
+    --st-cancelled-bg: #232322;
+    --shadow:   0 1px 2px rgba(0,0,0,.4), 0 4px 16px rgba(0,0,0,.3);
+    --shadow-l: 0 2px 6px rgba(0,0,0,.5), 0 12px 32px rgba(0,0,0,.45);
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Родитель читает это в состоянии стресса: крупный текст и спокойный ритм */
+h1, h2, h3 { line-height: 1.22; letter-spacing: -0.018em; margin: 0; font-weight: 640; }
+h1 { font-size: clamp(1.6rem, 1.2rem + 1.6vw, 2.3rem); }
+h2 { font-size: clamp(1.25rem, 1.05rem + 0.8vw, 1.6rem); }
+h3 { font-size: 1.08rem; }
+p  { margin: 0; }
+
+button, input, select, textarea { font: inherit; color: inherit; }
+
+:focus-visible {
+  outline: 2.5px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
+  padding: .72rem 1.15rem;
+  border-radius: var(--radius-s);
+  border: 1px solid transparent;
+  font-weight: 560; font-size: .975rem;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, transform .06s ease, box-shadow .15s ease;
+}
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.btn-primary { background: var(--brand); color: #fff; box-shadow: var(--shadow); }
+.btn-primary:hover:not(:disabled) { background: var(--brand-ink); }
+
+.btn-ghost { background: var(--surface); border-color: var(--border-strong); color: var(--ink); }
+.btn-ghost:hover:not(:disabled) { background: var(--surface-2); }
+
+.btn-quiet { background: transparent; color: var(--ink-2); padding: .5rem .75rem; }
+.btn-quiet:hover:not(:disabled) { background: var(--surface-2); color: var(--ink); }
+
+.field {
+  width: 100%;
+  padding: .78rem .95rem;
+  background: var(--surface);
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-s);
+  transition: border-color .15s ease;
+}
+.field:focus { border-color: var(--brand); outline: none; }
+
+.skip-link {
+  position: absolute; left: -9999px;
+  background: var(--brand); color: #fff; padding: .7rem 1rem; border-radius: 0 0 var(--radius-s) 0; z-index: 100;
+}
+.skip-link:focus { left: 0; top: 0; }

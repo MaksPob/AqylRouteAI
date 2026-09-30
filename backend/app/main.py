@@ -124,7 +124,9 @@ def answer(body: AnswerIn, u: Annotated[dict, Depends(current_user)]):
     if not case:
         raise HTTPException(404, "Кейс не найден")
 
-    db.add_answer(body.case_id, body.question_id, body.question, body.answer)
+    # служебный запрос: вернуть текущий вопрос, ничего не записывая
+    if body.question_id != "__resume__":
+        db.add_answer(body.case_id, body.question_id, body.question, body.answer)
 
     # регион и возраст фиксируем сразу — от них зависит фильтрация каталога
     if body.question_id == "REGION" and body.answer in ("ASTANA", "KARAGANDA", "ALMATY"):
