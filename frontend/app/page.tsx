@@ -81,10 +81,6 @@ export default function LoginPage() {
         <div className="grid flex-1 items-center gap-10 py-8 lg:grid-cols-[1.05fr_minmax(340px,.95fr)] lg:gap-16">
           {/* Левая колонка — о продукте */}
           <section>
-            <p className="mb-4 inline-flex items-center gap-2 rounded-full px-3 py-1 text-[0.78rem] font-semibold"
-               style={{ background: "var(--brand-soft)", color: "var(--brand-ink)" }}>
-              <Icon.shield size={14} /> Карагандинский медицинский университет
-            </p>
             <h1 className="mb-5 max-w-xl text-balance">
               Маршрут помощи ребёнку — <span style={{ color: "var(--brand)" }}>в одном месте</span>
             </h1>
@@ -94,15 +90,15 @@ export default function LoginPage() {
               в один живой план: с ответственными, сроками и видимой точкой, где всё остановилось.
             </p>
 
-            <div className="grid max-w-lg gap-3 sm:grid-cols-3">
+            <div className="grid max-w-2xl gap-3 sm:grid-cols-3">
               {[
                 { n: "8–12", l: "вопросов адаптивного интервью" },
                 { n: "20", l: "услуг в справочнике, 5 этапов" },
-                { n: "0", l: "выдуманных AI действий" },
+                { n: "3", l: "ведомства в одном цифровом досье" },
               ].map((s) => (
-                <div key={s.l} className="card px-4 py-3.5">
-                  <div className="text-[1.5rem] font-bold leading-none tracking-tight" style={{ color: "var(--brand)" }}>{s.n}</div>
-                  <div className="mt-1.5 text-[0.8rem] leading-snug" style={{ color: "var(--ink-muted)" }}>{s.l}</div>
+                <div key={s.l} className="card px-4 py-4">
+                  <div className="text-[1.6rem] font-bold leading-none tracking-tight" style={{ color: "var(--brand)" }}>{s.n}</div>
+                  <div className="mt-2 text-[0.82rem] leading-snug text-balance" style={{ color: "var(--ink-muted)" }}>{s.l}</div>
                 </div>
               ))}
             </div>
