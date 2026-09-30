@@ -56,6 +56,29 @@ pkill -f "next dev"; pkill -f uvicorn
 
 Или занять другой порт: `npm run dev -- --port 3001`
 
+### Развёртывание на другом компьютере
+
+Поставить нужно только две вещи — остальное скрипт установит сам.
+
+| Требуется | macOS | Windows и Linux |
+|---|---|---|
+| Python 3.11+ | `brew install python@3.12` | [python.org/downloads](https://www.python.org/downloads/) · `sudo apt install python3 python3-venv` |
+| Node.js 20+ | `brew install node` | [nodejs.org](https://nodejs.org) · `sudo apt install nodejs npm` |
+
+Дальше три команды:
+
+```bash
+git clone https://github.com/MaksPob/AqylRouteAI.git
+cd AqylRouteAI
+./start.sh
+```
+
+Первый запуск занимает 3–5 минут — ставятся зависимости. Браузер откроется сам.
+
+Скрипт проверит версии Python и Node, установит зависимости, создаст `.env`
+из шаблона, предложит освободить занятые порты и дождётся готовности сервисов.
+Ключ OpenAI не обязателен: без него работает демонстрационный режим.
+
 ### Установка с нуля
 
 Если папки `backend/.venv` или `frontend/node_modules` нет:
