@@ -1,0 +1,76 @@
+{
+  "$comment": "Справочники-константы из ТЗ. Значения этих enum передаются в OpenAI structured outputs как ограничения схемы — AI физически не может вернуть значение вне списка.",
+
+  "item_status": {
+    "TODO":        { "label": "Нужно сделать", "color": "#F59E0B", "icon": "🟠", "visible_to_parent": true },
+    "IN_PROGRESS": { "label": "В процессе",    "color": "#3B82F6", "icon": "🔵", "visible_to_parent": true },
+    "WAITING":     { "label": "Ждём ответа",   "color": "#A855F7", "icon": "🟣", "visible_to_parent": true },
+    "DONE":        { "label": "Выполнено",     "color": "#22C55E", "icon": "🟢", "visible_to_parent": true },
+    "OVERDUE":     { "label": "Просрочено",    "color": "#EF4444", "icon": "🔴", "visible_to_parent": true },
+    "BLOCKED":     { "label": "Заблокировано", "color": "#F97316", "icon": "⚠️", "visible_to_parent": true },
+    "CANCELLED":   { "label": "Отменено",      "color": "#9CA3AF", "icon": "⚪", "visible_to_parent": false }
+  },
+
+  "priority": {
+    "HIGH":   { "label": "Высокий", "rank": 1 },
+    "MEDIUM": { "label": "Средний", "rank": 2 },
+    "LOW":    { "label": "Низкий",  "rank": 3 }
+  },
+
+  "responsible_role": {
+    "PARENT":                 { "label": "Родитель" },
+    "CLINIC":                 { "label": "Поликлиника / ПМСП" },
+    "PSYCHIATRIST":           { "label": "Детский врач-психиатр" },
+    "VKK":                    { "label": "Врачебно-консультативная комиссия (ВКК)" },
+    "MSE":                    { "label": "Медико-социальная экспертиза (МСЭ)" },
+    "PMPC":                   { "label": "ПМПК" },
+    "EDUCATIONAL_ORGANIZATION": { "label": "Образовательная организация" },
+    "REHABILITATION_CENTER":  { "label": "Реабилитационный центр" },
+    "SOCIAL_SERVICE":         { "label": "Орган соцзащиты" },
+    "CURATOR":                { "label": "Куратор" }
+  },
+
+  "blocker_type": {
+    "MISSING_DOCUMENT":        { "label": "Не хватает документа",        "curator_action": "Запросить документ у родителя" },
+    "WAITING_FOR_ORGANIZATION":{ "label": "Ждём организацию",            "curator_action": "Связаться с организацией" },
+    "NO_APPOINTMENT":          { "label": "Нет записи на приём",         "curator_action": "Помочь с записью" },
+    "PARENT_UNAVAILABLE":      { "label": "Родитель недоступен",         "curator_action": "Связаться с родителем" },
+    "SERVICE_UNAVAILABLE":     { "label": "Услуга недоступна в регионе", "curator_action": "Найти альтернативу" },
+    "UNKNOWN":                 { "label": "Другая причина",             "curator_action": "Уточнить у родителя" }
+  },
+
+  "document_status": {
+    "available":   { "label": "Есть на руках" },
+    "missing":     { "label": "Отсутствует" },
+    "in_progress": { "label": "Оформляется" },
+    "unknown":     { "label": "Не знаю" }
+  },
+
+  "track_stage": {
+    "$comment": "5 этапов межведомственного трека из ТЗ",
+    "DIAGNOSTIC":     { "order": 1, "label": "Диагностический",   "authority": "Министерство здравоохранения", "output": "Форма №031/у (заключение ВКК)" },
+    "SOCIAL_LEGAL":   { "order": 2, "label": "Социально-правовой", "authority": "МТСЗН",                        "output": "Справка об инвалидности, ИПАР, пособия" },
+    "EDUCATIONAL":    { "order": 3, "label": "Образовательный",    "authority": "Министерство просвещения",     "output": "Заключение ПМПК (рекомендации ООП)" },
+    "REHABILITATION": { "order": 4, "label": "Реабилитационный",   "authority": "МЗ + МПР + НПО/Фонды",         "output": "Индивидуальные коррекционные планы (ABA, JASPER)" },
+    "VOCATIONAL":     { "order": 5, "label": "Профессиональный",   "authority": "МПР + МТСЗН",                  "output": "Диплом/сертификат УПК, сопровождаемое рабочее место" }
+  },
+
+  "parent_phase": {
+    "$comment": "Психологические фазы родителей — влияют на тон объяснений AI, не на сам маршрут",
+    "SHOCK":      { "label": "Шок",        "stage_hint": "DIAGNOSTIC",     "tone": "Дозировать информацию, минимум терминов, один следующий шаг" },
+    "DENIAL":     { "label": "Отрицание",  "stage_hint": "DIAGNOSTIC",     "tone": "Не спорить с родителем; опора на факты и сроки, риск «врачебного шопинга»" },
+    "ANGER":      { "label": "Гнев",       "stage_hint": "SOCIAL_LEGAL",   "tone": "Признать сложность системы, дать конкретику вместо общих слов" },
+    "BARGAINING": { "label": "Торг",       "stage_hint": "SOCIAL_LEGAL",   "tone": "Аккуратно про доказательность, риск парамедицины" },
+    "DEPRESSION": { "label": "Депрессия",  "stage_hint": "EDUCATIONAL",    "tone": "Предложить поддержку для взрослых и группы равной поддержки" },
+    "ACCEPTANCE": { "label": "Принятие",   "stage_hint": "REHABILITATION", "tone": "Партнёрский тон, родитель как ко-терапевт" }
+  },
+
+  "escalation_level": {
+    "$comment": "Механическое правило из ТЗ п.12 — вычисляется системой, не AI. Порог в днях просрочки.",
+    "NONE":     { "days_overdue": 0,  "action": "—" },
+    "NOTIFY_PARENT":   { "days_overdue": 1,  "action": "Уведомление родителю" },
+    "NOTIFY_CURATOR":  { "days_overdue": 3,  "action": "Уведомление родителю и куратору" },
+    "ESCALATION":      { "days_overdue": 7,  "action": "Эскалация: куратор связывается с организацией" },
+    "HIGH_ESCALATION": { "days_overdue": 14, "action": "Высокий уровень эскалации" }
+  }
+}
